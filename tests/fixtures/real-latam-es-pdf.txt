@@ -1,0 +1,47 @@
+AEROVIAS DE INTEGRACIÓN REGIONAL S.A.
+NIT 890.704.196 - 6
+Av. El Dorado No. 103 - 08 Entrada 1 - Hangar Bogotá D.C., Colombia
+Facturas electrónicas: col_intercambio@einvoicing.signature-cloud.com
+Tiquete de transporte aéreo
+INFORMACIÓN IMPORTANTE : Este documento contiene el detalle y las condiciones del servicio adquirido y se emite solamente para
+efectos informativos, por lo que el mismo no constituye una factura electrónica de venta y/o documento equivalente, ni será soporte de
+costos, deducciones o impuestos descontables para efectos tributarios. Por lo anterior, a partir del primero de septiembre de 2024 se
+emitirá un documento equivalente tributario en cumplimiento con lo regulado en las Resoluciones 000165 de 2023 y 000119 de 2024
+emitidas por la DIAN.
+No es necesario que lo lleves el día de tu viaje.
+Información importante
+Considere que los tickets adquiridos están sujetos a restricciones gubernamentales, de los países donde
+operamos, y deben ser aprobados por las autoridades locales.
+Información de tu viaje
+Código de | Nº de | Ciudad y Fecha de | Bogotá, Colombia
+QPLMZX | LA0000000AAAA
+Reserva | orden | emisión | 21/01/26
+Nombre Pasajero | Tipo de pasajero | Documento de Identificación
+ALEX TRAVELER | Adulto | 000000000
+Itinerario
+N° de | Salida | Llegada
+Origen | Destino | Cabina | Tarifa | Asiento/Silla
+vuelo | Fecha | Horario | Fecha | Horario
+Bogotá | Santa
+(El | Marta | 12:45 | 2:17
+LA4154 | 01/03/26 | 01/03/26 | Economy | Light | 11F
+Dorado | (Simon | p. m. | p. m.
+Intl.) | Bolivar)
+Desglose de tu pago | Forma de pago
+Número de ticket | Concepto | Monto | Tipo | Monto
+Vuelo | $ 175.900 | Tarjeta de crédito / débito
+0350000000001 | $ 281.914
+Tasas y/o impuestos (1) | $ 57.120 | XXXXXXXXXXXX0000
+(1) YSA: $ 7.810
+Asiento | $ 27.084
+0350000000002 | YS: $ 33.420
+Tasas y/o impuestos (1) | $ 5.150
+CO: $ 23.700
+Número de ticket | Concepto | Monto
+LATAM Flex | $ 14.000
+0350000000003
+Tasas y/o impuestos (1) | $ 2.660
+Total pagado | $ 281.914
+Aerolíneas en este viaje
+N° de vuelo | Aerolínea operadora / Código de reserva aerolínea | Aerolínea que factura
+LA 4154 | LATAM AIRLINES COLOMBIA / QPLMZX | AEROVIAS DE INTEGRACIÓN REGIONAL S.A.

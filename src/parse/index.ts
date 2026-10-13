@@ -5,7 +5,7 @@ import { parseJsonLd } from './jsonld';
 import { parseMicrodata } from './microdata';
 
 /** Bump when parsing improves, so the next sync re-reads emails that previously gave nothing. */
-export const PARSER_VERSION = 6;
+export const PARSER_VERSION = 7;
 
 export interface EmailExplanation {
   flights: ParsedFlight[];

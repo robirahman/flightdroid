@@ -25,3 +25,15 @@ describe('reported emails', () => {
     ]);
   });
 });
+
+describe('reported PDFs', () => {
+  it('LATAM receipt PDF: airport names wrapped down table columns, "p. m." on the line below', async () => {
+    const { explainText } = await import('../src/parse');
+    const email: EmailMessage = { id: 'r2', subject: 'Ya compraste tu viaje a Santa Marta', from: 'LATAM Airlines <info@info.latam.com>', date: Date.UTC(2026, 0, 21) };
+    const result = explainText(fixture('real-latam-es-pdf.txt'), email, 'Comprobante-LATAM.pdf');
+    expect(result.reason).toBeUndefined();
+    expect(result.flights).toEqual([
+      expect.objectContaining({ airline: 'LA', flightNumber: '4154', from: 'BOG', to: 'SMR', departure: '2026-03-01T12:45', arrival: '2026-03-01T14:17' }),
+    ]);
+  });
+});

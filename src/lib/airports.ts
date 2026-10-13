@@ -73,31 +73,55 @@ const GENERIC_NAME_WORDS = new Set(
 const NAME_ALIASES: Record<string, string> = { marrakech: 'RAK', bombay: 'BOM', calcutta: 'CCU', madras: 'MAA', saigon: 'SGN', peking: 'PEK' };
 
 let nameIndex: Map<string, string> | undefined;
+let nameOwners: Map<string, Set<string>> | undefined;
 
 /**
- * Lower-case, accent-free names that point to exactly one major airport:
+ * Lower-case, accent-free names that point to exactly one airport with scheduled service:
  * distinctive words of airport names ("gatwick", "ezeiza") and cities with a single airport
  * ("marrakesh"). For emails that name airports instead of giving their codes.
  */
 export function airportNameIndex(): Map<string, string> {
   if (nameIndex) return nameIndex;
   const owners = new Map<string, Set<string>>();
-  const claim = (key: string, code: string) => {
+  const claim = (key: string, code: string, size: number) => {
     if (key.length < 4 || GENERIC_NAME_WORDS.has(key)) return;
+    // Single words only for major airports: smaller ones are too often named after ordinary
+    // words ("Fare"). Multi-word names ("santa marta") are distinctive at any size.
+    if (size < 3 && !key.includes(' ')) return;
     (owners.get(key) ?? owners.set(key, new Set()).get(key)!).add(code);
   };
   for (const code of Object.keys(rows)) {
     const a = getAirport(code)!;
-    // Major airports only: smaller ones are too often named after ordinary words or places.
-    if (a.size < 3) continue;
+    if (a.size < 2) continue;
     const city = fold(a.city).replace(/\s*\(.*\)/, '').trim();
-    if (city) claim(city, code);
+    if (city) claim(city, code, a.size);
     const cityWords = new Set(city.split(/[^a-z]+/));
-    for (const word of fold(a.name).split(/[^a-z]+/)) if (word.length >= 5 && !cityWords.has(word)) claim(word, code);
+    for (const word of fold(a.name).split(/[^a-z]+/)) if (word.length >= 5 && !cityWords.has(word)) claim(word, code, a.size);
   }
   nameIndex = new Map(Object.entries(NAME_ALIASES));
   for (const [key, codes] of owners) if (codes.size === 1 && !nameIndex.has(key)) nameIndex.set(key, [...codes][0]);
+  nameOwners = owners;
   return nameIndex;
+}
+
+/**
+ * The airport a name refers to, using the surrounding words to tell apart places that share a
+ * name: "Santa Marta (Simon Bolivar)" is SMR in Colombia, not Kawama, also listed as Santa Marta.
+ */
+export function airportForName(key: string, context: string[]): string | undefined {
+  const unique = airportNameIndex().get(key);
+  if (unique) return unique;
+  const candidates = [...(nameOwners!.get(key) ?? [])];
+  if (candidates.length < 2) return undefined;
+  const words = context.filter((w) => w.length >= 4 && !key.split(' ').includes(w));
+  const scored = candidates.map((code) => {
+    const a = getAirport(code)!;
+    const own = new Set(fold(`${a.name} ${a.city}`).split(/[^a-z]+/));
+    return { code, score: words.filter((w) => own.has(w)).length };
+  });
+  const best = Math.max(...scored.map((s) => s.score));
+  const winners = scored.filter((s) => s.score === best);
+  return best > 0 && winners.length === 1 ? winners[0].code : undefined;
 }
 
 /** True when `word` is part of the airport's name or city ("GATWICK" for LGW, "MARRAKECH" for RAK). */

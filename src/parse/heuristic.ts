@@ -7,7 +7,7 @@ import {
   airlineName,
   usesMonthFirstDates,
 } from '../data/airlines';
-import { airportNameIndex, getAirport, namesAirport } from '../lib/airports';
+import { airportForName, airportNameIndex, getAirport, namesAirport } from '../lib/airports';
 import type { EmailMessage, ParsedFlight } from '../lib/types';
 
 /** Month names and abbreviations in English, Spanish, Portuguese, Italian, French and German (accents folded). */
@@ -162,12 +162,32 @@ function findDates(text: string, monthFirst: boolean): DateHit[] {
 }
 
 function findTimes(text: string): TimeHit[] {
-  return matches(text, /\b([01]?\d|2[0-3])[:.h]([0-5]\d)(?:\s*([ap])\.?\s?m\b\.?)?(?![\d:]|\s*m(?:in)?\b)/gi).map((m) => {
-    let h = Number(m[1]);
-    const ampm = m[3]?.toLowerCase();
+  const found = matches(text, /\b([01]?\d|2[0-3])[:.h]([0-5]\d)(?:\s*([ap])\.?\s?m\b\.?)?(?![\d:]|\s*m(?:in)?\b)/gi).map((m) => ({
+    index: m.index,
+    end: m.index + m[0].length,
+    hour: Number(m[1]),
+    minute: Number(m[2]),
+    ampm: m[3]?.toLowerCase(),
+  }));
+  // PDF tables can wrap "p. m." onto the line below its time ("12:45 | 2:17" / "p. m. | p. m.").
+  for (const line of new Set(found.filter((t) => !t.ampm && t.hour <= 12).map((t) => text.lastIndexOf('\n', t.index - 1) + 1))) {
+    const bare = found.filter((t) => !t.ampm && t.hour <= 12 && text.lastIndexOf('\n', t.index - 1) + 1 === line);
+    const [from, to] = lineWindow(text, line, line, 0, 3);
+    const below = text.slice(text.indexOf('\n', line) + 1, to);
+    if (from !== line) continue;
+    for (const next of below.split('\n')) {
+      const marks = [...next.matchAll(/(?:^|[\s|])([ap])\.?\s?m\.?(?=$|[\s|])/gi)].map((m) => m[1].toLowerCase());
+      if (marks.length >= bare.length && marks.length) {
+        bare.forEach((t, i) => (t.ampm = marks[i]));
+        break;
+      }
+    }
+  }
+  return found.map(({ index, end, hour, minute, ampm }) => {
+    let h = hour;
     if (ampm === 'p' && h < 12) h += 12;
     if (ampm === 'a' && h === 12) h = 0;
-    return { index: m.index, end: m.index + m[0].length, minutes: h * 60 + Number(m[2]) };
+    return { index, end, minutes: h * 60 + minute };
   });
 }
 
@@ -277,6 +297,40 @@ function findNameRoutes(text: string): PairHit[] {
   return out;
 }
 
+/**
+ * For emails with no airport codes at all: airport names near each flight number, including
+ * names that a PDF table wrapped down a column ("Bogota" / "(El" / "Dorado" in one column,
+ * "Santa" / "Marta" in the next). Reading each column top to bottom gives "Bogota (El Dorado)"
+ * then "Santa Marta (Simon Bolivar)": the first two distinct airports are the route.
+ */
+function findNameRoutesNearFlights(text: string, flights: FlightHit[]): PairHit[] {
+  const index = airportNameIndex();
+  const resolve = (phrase: string): string | undefined => {
+    // From the start of the cell: "Bogota (El Dorado Intl.)" is Bogota, not El Dorado, Arkansas.
+    const words = phrase.toLowerCase().replace(/[^a-z\s]/g, ' ').split(/\s+/).filter(Boolean);
+    for (let i = 0; i < words.length; i++) {
+      for (let len = Math.min(3, words.length - i); len >= 1; len--) {
+        const code = index.get(words.slice(i, i + len).join(' ')) ?? (len > 1 ? airportForName(words.slice(i, i + len).join(' '), words) : undefined);
+        if (code) return code;
+      }
+    }
+    return undefined;
+  };
+  const out: PairHit[] = [];
+  for (const f of flights) {
+    const [start, stop] = lineWindow(text, f.index, f.end, 3, 3);
+    const rows = text.slice(start, stop).split('\n').map((line) => line.split('|').map((c) => c.trim()));
+    const isName = (cell: string) => /[A-Za-z]{2}/.test(cell) && !/\d/.test(cell);
+    const columns: string[] = [];
+    for (const row of rows) row.forEach((cell, c) => isName(cell) && (columns[c] = `${columns[c] ?? ''} ${cell}`));
+    let codes = columns.filter(Boolean).map(resolve);
+    if (codes.filter(Boolean).length < 2) codes = rows.flat().filter(isName).map(resolve);
+    const route = [...new Set(codes.filter((c): c is string => !!c))];
+    if (route.length >= 2) out.push({ index: f.index, end: f.end, from: route[0], to: route[1], strength: 1 });
+  }
+  return out;
+}
+
 /** Routes from consecutive airport mentions: departure then arrival, close together. */
 function pairsFromMentions(mentions: Mention[]): PairHit[] {
   const out: PairHit[] = [];
@@ -368,7 +422,7 @@ function alignInOrder(anchors: Hit[], candidates: Hit[], text: string, penalty: 
 }
 
 const NOT_A_FLIGHT_DATE =
-  /(booked|booking date|issued|issue date|date of issue|purchased?|ordered|transaction|invoice|payment|paid|fecha de (?:emision|compra|reserva)|emitid[oa]|data (?:de )?(?:emissao|compra)|emesso|emissione|ausgestellt)[^\n\d]{0,25}$/i;
+  /(booked|booking date|issued|issue date|date of issue|purchased?|ordered|transaction|invoice|payment|paid|emision|emission|fecha de (?:compra|reserva)|emitid[oa]|data (?:de )?(?:emissao|compra)|emesso|emissione|ausgestellt)[^\n\d]{0,25}$/i;
 
 const ARRIVAL_LABEL = /(arriv\w*|llegada|llega|chegada|arrivo|ankunft|\barr\.?)[^\n\d]{0,20}$/i;
 
@@ -426,7 +480,7 @@ const CONFIRMATION_LABEL =
   'confirmation|booking|record locator|reservation|pnr|codigo de reserva(?:cion)?|codigo de confirmacion|localizador|' +
   'codice (?:di )?prenotazione|code de reservation|buchungscode|buchungsnummer|reserva|prenotazione';
 
-function confirmationCode(text: string): string | undefined {
+export function confirmationCode(text: string): string | undefined {
   // "Confirmation code: ABC123", "Tu código de confirmación de JetBlue es ABC123".
   const re = new RegExp(
     `\\b(?:${CONFIRMATION_LABEL})\\s*(?:code|number|no\\.?|#|reference)?(?:\\s+(?:de|of|for|with)\\s+[A-Za-z]+)?\\s*(?:is|es|e|ist|est)?\\s*[:#]?\\s*\\|?\\s*([A-Z0-9]{6})\\b`,
@@ -456,6 +510,7 @@ export function scanText(rawText: string, email: EmailMessage): HeuristicResult 
   const dates = findDates(text, usesMonthFirstDates(email.from, carrier ?? flights.find((f) => f.airline)?.airline));
   const times = findTimes(text);
   const pairs = findPairs(text);
+  if (!pairs.length && flights.length) pairs.push(...findNameRoutesNearFlights(text, flights));
   const stats = { flightNumbers: flights.length, dates: dates.length, routes: pairs.length };
   if (!dates.length || !pairs.length) return { flights: [], stats };
 
@@ -499,7 +554,12 @@ export function scanText(rawText: string, email: EmailMessage): HeuristicResult 
       ? Math.min(next.index, routeOf(nextIndex)?.index ?? Infinity, firstUse(nextIndex) ? (dates[dateOf[nextIndex]]?.index ?? Infinity) : Infinity)
       : Infinity;
     const end = nextStart > start ? nextStart : Infinity;
-    const ts = times.filter((t) => t.index >= start && t.end <= end).slice(0, 2);
+    let ts = times.filter((t) => t.index >= start && t.end <= end).slice(0, 2);
+    // Tables can print the times on a row above the flight number and date.
+    if (!ts.length) {
+      const [near, far] = lineWindow(text, anchor.index, anchor.end, 2, 2);
+      ts = times.filter((t) => t.index >= near && t.end <= Math.min(far, end)).slice(0, 2);
+    }
 
     const year = resolveYear(date, email.date);
     const departure = wall(year, date.month, date.day, ts[0]?.minutes);
