@@ -37,7 +37,8 @@ except map tile requests.
 **Missing a flight?** Settings → *Missing a flight?* takes a Gmail search (e.g.
 `avianca santa marta`) and shows, for each matching email, whether the sync searches include it
 and what was found in it — or why nothing was (no airport codes, details only in a PDF, …).
-Itineraries that exist only as PDF attachments aren't read yet.
+When an email body has no flights, PDF attachments (e-tickets, itineraries) are read too. Each
+result can copy the exact text Flightdroid read, for reporting a parsing problem.
 
 ## Connect Gmail
 

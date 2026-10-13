@@ -1,6 +1,7 @@
-import { explainEmail, type EmailExplanation } from '../parse';
-import { getMessage, listMessageIds } from './api';
+import type { EmailExplanation } from '../parse';
+import { listMessageIds } from './api';
 import { syncQueries } from './query';
+import { readEmail } from './read';
 
 export interface DiagnosedEmail {
   id: string;
@@ -24,8 +25,8 @@ export async function diagnoseSearch(token: string, syncQuery: string, userQuery
   }
   const out: DiagnosedEmail[] = [];
   for (const id of ids) {
-    const email = await getMessage(token, id);
-    out.push({ id, subject: email.subject, from: email.from, date: email.date, searchedBySync: searched.has(id), explanation: explainEmail(email) });
+    const { email, explanation } = await readEmail(token, id);
+    out.push({ id, subject: email.subject, from: email.from, date: email.date, searchedBySync: searched.has(id), explanation });
   }
   return out;
 }

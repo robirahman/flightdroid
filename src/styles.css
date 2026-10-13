@@ -918,3 +918,12 @@ details summary {
 .tag.warn {
   background: color-mix(in srgb, var(--accent) 22%, transparent);
 }
+.link-btn {
+  align-self: flex-start;
+  border: 0;
+  background: none;
+  padding: 2px 0;
+  color: var(--arc-past);
+  font-size: 13px;
+  font-weight: 600;
+}

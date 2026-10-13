@@ -56,3 +56,53 @@ export function countryName(code: string): string {
     return code;
   }
 }
+
+const fold = (s: string) => s.normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase();
+
+/** Words in airport names that say nothing about which airport it is. */
+const GENERIC_NAME_WORDS = new Set(
+  ('airport airfield aerodrome aeroport aeropuerto aeroporto flughafen lufthavn international intl regional municipal ' +
+    'county national domestic field station base heliport airstrip memorial general executive metropolitan city ' +
+    'island islands lake river valley north south east west central saint santa santo grand great new port mount ' +
+    // Everyday words that happen to identify one airport (Dallas Love Field, Chicago Midway, …).
+    'love hobby midway liberty harbor harbour gateway freedom victory independence union nice split mobile orange')
+    .split(' '),
+);
+
+/** Common alternative spellings of cities whose airport the data names differently. */
+const NAME_ALIASES: Record<string, string> = { marrakech: 'RAK', bombay: 'BOM', calcutta: 'CCU', madras: 'MAA', saigon: 'SGN', peking: 'PEK' };
+
+let nameIndex: Map<string, string> | undefined;
+
+/**
+ * Lower-case, accent-free names that point to exactly one airport with scheduled service:
+ * distinctive words of airport names ("gatwick", "ezeiza") and cities with a single airport
+ * ("marrakesh"). For emails that name airports instead of giving their codes.
+ */
+export function airportNameIndex(): Map<string, string> {
+  if (nameIndex) return nameIndex;
+  const owners = new Map<string, Set<string>>();
+  const claim = (key: string, code: string) => {
+    if (key.length < 4 || GENERIC_NAME_WORDS.has(key)) return;
+    (owners.get(key) ?? owners.set(key, new Set()).get(key)!).add(code);
+  };
+  for (const code of Object.keys(rows)) {
+    const a = getAirport(code)!;
+    if (a.size < 2) continue;
+    const city = fold(a.city).replace(/\s*\(.*\)/, '').trim();
+    if (city) claim(city, code);
+    const cityWords = new Set(city.split(/[^a-z]+/));
+    for (const word of fold(a.name).split(/[^a-z]+/)) if (word.length >= 5 && !cityWords.has(word)) claim(word, code);
+  }
+  nameIndex = new Map(Object.entries(NAME_ALIASES));
+  for (const [key, codes] of owners) if (codes.size === 1 && !nameIndex.has(key)) nameIndex.set(key, [...codes][0]);
+  return nameIndex;
+}
+
+/** True when `word` is part of the airport's name or city ("GATWICK" for LGW, "MARRAKECH" for RAK). */
+export function namesAirport(word: string, airport: Airport): boolean {
+  const w = fold(word);
+  if (w.length < 3) return false;
+  const words = fold(`${airport.city} ${airport.name}`).split(/[^a-z]+/);
+  return words.some((n) => n.length >= 3 && (n === w || (w.length >= 5 && n.length >= 5 && n.slice(0, 5) === w.slice(0, 5))));
+}

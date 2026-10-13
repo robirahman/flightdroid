@@ -32,7 +32,7 @@ describe('decodeMessage', () => {
     const email = decodeMessage(msg);
     expect(email).toMatchObject({ id: 'abc', subject: 'Ihre Buchungsbestätigung', from: 'Lufthansa <noreply@lufthansa.com>', date: 1767225600000, text: 'Grüße – LH 455' });
     expect(email.html).toContain('Grüße');
-    expect(email.attachments).toEqual(['application/pdf']);
+    expect(email.attachments).toEqual([{ name: 'application/pdf', mimeType: 'application/pdf', id: 'att1', size: 1000 }]);
   });
 
   it('feeds the parser', () => {

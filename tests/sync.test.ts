@@ -171,3 +171,56 @@ describe('diagnoseSearch', () => {
     expect(second.explanation.reason).toMatch(/No flight numbers or dates or airport codes/);
   });
 });
+
+describe('PDF attachments', () => {
+  it('reads flights from an attached e-ticket when the email body has none', async () => {
+    const { readFileSync } = await import('node:fs');
+    const { join } = await import('node:path');
+    const pdfjs = await import('pdfjs-dist/legacy/build/pdf.mjs');
+    const { usePdfJs } = await import('../src/parse/pdf');
+    usePdfJs(pdfjs as never);
+    const pdf = readFileSync(join(__dirname, 'fixtures', 'eticket.pdf'));
+    const fetchMock = vi.fn(async (url: string) => {
+      if (url.includes('/messages?')) return json({ messages: [{ id: 'g1' }] });
+      if (url.includes('/attachments/att-ticket')) return json({ data: pdf.toString('base64url'), size: pdf.length });
+      return json({
+        id: 'g1',
+        internalDate: String(Date.UTC(2023, 8, 29)),
+        payload: {
+          mimeType: 'multipart/mixed',
+          headers: [{ name: 'Subject', value: 'Itinerary 642804' }, { name: 'From', value: 'Globehunters <cs@globehunters.com>' }],
+          parts: [
+            { mimeType: 'text/plain', body: { data: b64url('Dear customer, please find your e-ticket and invoice attached.') } },
+            { mimeType: 'application/pdf', filename: 'invoice.pdf', body: { attachmentId: 'att-invoice', size: 9000 } },
+            { mimeType: 'application/pdf', filename: 'E-ticket.pdf', body: { attachmentId: 'att-ticket', size: pdf.length } },
+          ],
+        },
+      });
+    });
+    vi.stubGlobal('fetch', fetchMock);
+    const flights = await syncGmail({ token: 't', query: 'q' });
+    expect(flights).toEqual([
+      expect.objectContaining({ airline: 'BA', flightNumber: '2662', from: 'LGW', to: 'RAK', departure: '2023-10-12T08:15', foundIn: 'PDF attachment E-ticket.pdf' }),
+      expect.objectContaining({ airline: 'BA', flightNumber: '2663', from: 'RAK', to: 'LGW', departure: '2023-10-19T12:45' }),
+    ]);
+    // The ticket-looking PDF is read first, so the invoice is never downloaded.
+    expect(fetchMock.mock.calls.some(([url]) => String(url).includes('att-invoice'))).toBe(false);
+  });
+});
+
+describe('stale flights', () => {
+  it('drops flights an older parser wrongly took from a re-read email, but keeps edited ones', async () => {
+    const { saveFlights } = await import('../src/lib/store');
+    await saveFlights([
+      { id: 'bad', airline: 'AA', flightNumber: '1433', from: 'TUL', to: 'CLT', departure: '2023-01-13', source: 'gmail', confidence: 'low', messageId: 'm0', emailDate: 1 },
+      { id: 'mine', airline: 'AA', flightNumber: '9', from: 'JFK', to: 'LAX', departure: '2023-01-14', source: 'gmail', confidence: 'low', messageId: 'm0', edited: true },
+      { id: 'manual', airline: '', flightNumber: '', from: 'SFO', to: 'SEA', departure: '2023-02-01', source: 'manual', confidence: 'high' },
+    ]);
+    await saveSyncState({ processedIds: ['m0'], deletedKeys: [], scanKey: '1|q', lastSync: Date.now() });
+    fakeGmail(1, () => false);
+    const flights = await syncGmail({ token: 't', query: 'q' });
+    expect(flights.map((f) => f.id).sort()).toEqual([expect.any(String), 'manual', 'mine'].sort());
+    expect(flights.find((f) => f.from === 'TUL')).toBeUndefined();
+    expect(flights.find((f) => f.flightNumber === '100')).toMatchObject({ from: 'SFO', to: 'JFK' });
+  });
+});

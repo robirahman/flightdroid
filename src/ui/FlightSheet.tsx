@@ -50,6 +50,7 @@ function FlightDetails({ flight: f, units, onEdit, onDelete, onClose }: { flight
     ['Duration', info.km || info.scheduled ? `${info.scheduled ? '' : '~'}${formatDuration(info.minutes)}` : undefined],
     ['Confirmation', f.confirmation],
     ['Passenger', f.passenger],
+    ['Found in', f.source === 'gmail' ? f.foundIn : undefined],
   ];
   return (
     <div class="details">

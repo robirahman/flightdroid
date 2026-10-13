@@ -140,10 +140,20 @@ export async function getMessage(token: string, id: string): Promise<EmailMessag
   return decodeMessage(await request<GmailMessage>(token, `/messages/${id}?format=full`));
 }
 
-export function decodeBase64Url(data: string, charset = 'utf-8'): string {
+export function base64UrlToBytes(data: string): Uint8Array {
   const b64 = data.replace(/-/g, '+').replace(/_/g, '/');
   const bin = atob(b64 + '='.repeat((4 - (b64.length % 4)) % 4));
-  const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+  return Uint8Array.from(bin, (c) => c.charCodeAt(0));
+}
+
+/** Downloads an attachment's bytes. */
+export async function getAttachment(token: string, messageId: string, attachmentId: string): Promise<Uint8Array> {
+  const res = await request<{ data: string }>(token, `/messages/${messageId}/attachments/${attachmentId}`);
+  return base64UrlToBytes(res.data);
+}
+
+export function decodeBase64Url(data: string, charset = 'utf-8'): string {
+  const bytes = base64UrlToBytes(data);
   try {
     return new TextDecoder(charset).decode(bytes);
   } catch {
@@ -165,7 +175,9 @@ export function decodeMessage(msg: GmailMessage): EmailMessage {
   };
   const walk = (part: MessagePart) => {
     const type = part.mimeType?.toLowerCase() ?? '';
-    if (part.body?.attachmentId) (out.attachments ??= []).push(part.filename || type);
+    if (part.body?.attachmentId) {
+      (out.attachments ??= []).push({ name: part.filename || type, mimeType: type, id: part.body.attachmentId, size: part.body.size });
+    }
     if (part.body?.data && (type === 'text/html' || type === 'text/plain')) {
       const charset = header(part, 'Content-Type').match(/charset="?([\w-]+)"?/i)?.[1] ?? 'utf-8';
       const key = type === 'text/html' ? 'html' : 'text';

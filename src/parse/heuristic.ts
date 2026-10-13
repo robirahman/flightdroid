@@ -7,7 +7,7 @@ import {
   airlineName,
   usesMonthFirstDates,
 } from '../data/airlines';
-import { getAirport } from '../lib/airports';
+import { airportNameIndex, getAirport, namesAirport } from '../lib/airports';
 import type { EmailMessage, ParsedFlight } from '../lib/types';
 
 /** Month names and abbreviations in English, Spanish, Portuguese, Italian, French and German (accents folded). */
@@ -96,8 +96,9 @@ function findFlightNumbers(text: string): FlightHit[] {
   for (const m of matches(text, /\b([A-Z][A-Z0-9]|[0-9][A-Z])\s?(\d{1,4})\b(?![:/.,]\d)/g)) {
     const [, code, number] = m;
     if (!AIRLINES[code]) continue;
-    const before = text.slice(Math.max(0, m.index - 8), m.index);
-    // "8:30 AM 10 Mar" is a time, not Aeroméxico flight 10.
+    const before = text.slice(Math.max(0, m.index - 8), m.index).split('\n').pop()!;
+    // "8:30 AM 10 Mar" is a time, not Aeroméxico flight 10 (same line only: a row ending
+    // in a time can be followed by a row starting with a flight number).
     if (/\d[:.]\d\d\s*$/.test(before)) continue;
     // "US 2027" etc. after a month name is a date.
     if (/^(19|20)\d\d$/.test(number) && !new RegExp(FLIGHT_WORD, 'i').test(text.slice(Math.max(0, m.index - 20), m.index))) continue;
@@ -146,6 +147,8 @@ function findDates(text: string, monthFirst: boolean): DateHit[] {
   // "15 de marzo de 2025", "12 maggio 2025", "14FEB", "12-Apr-25"
   const dayFirst = new RegExp(`\\b(\\d{1,2})(?:st|nd|rd|th|º|°)?\\s*(?:de\\s+|-|\\.\\s*)?${MONTH}\\b(?:\\s*(?:de\\s+|,\\s*|-|\\s)\\s*(\\d{4}|\\d{2}(?![\\d:])))?`, 'gi');
   for (const m of matches(text, dayFirst)) add(m, m[3], month(m[2]), m[1]);
+  // "12OCT23", "29NOV" on tickets and in airline subjects.
+  for (const m of matches(text, /\b(\d{1,2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)(\d{2})?\b/g)) add(m, m[3], month(m[2]), m[1]);
   // "03/04/2025": month-first for US senders, day-first everywhere else, unless a part > 12 decides.
   for (const m of matches(text, /\b(\d{1,2})\/(\d{1,2})\/(\d{4}|\d{2})\b/g)) {
     const [a, b] = [Number(m[1]), Number(m[2])];
@@ -168,47 +171,100 @@ function findTimes(text: string): TimeHit[] {
   });
 }
 
+interface Mention extends Hit {
+  code: string;
+  /** "(SJO)" is unambiguous; a bare "SJO" or a name ("Gatwick") is weaker evidence. */
+  kind: 'paren' | 'bare' | 'name';
+}
+
+const CAPS_WORD = /^[A-Z][A-Z'.-]+$/;
+
+/**
+ * Whether a bare uppercase code really names an airport here. "MIA" alone in a table cell, next
+ * to a time, or next to its city ("LONDON GATWICK LGW MARRAKECH") does; "SAN" in "SAN JOSE" or "DEL" in
+ * "DEL VUELO" doesn't: those sit inside a run of capitalised words unrelated to the airport.
+ */
+function bareCodeIsAirport(text: string, index: number, end: number, code: string): boolean {
+  const airport = getAirport(code);
+  if (!airport || airport.size < 2 || STOPWORDS.has(code)) return false;
+  if (text[index - 1] === '(' || /^[-/.]/.test(text.slice(end, end + 1))) return false;
+  const before = text.slice(Math.max(0, index - 40), index).split(/[\n|]/).pop()!.trim().split(/\s+/).pop() ?? '';
+  const after = text.slice(end, end + 40).split(/[\n|]/)[0].trim().split(/\s+/)[0] ?? '';
+  const neighbours = [before, after].map((w) => w.replace(/[,:;]+$/, '')).filter((w) => CAPS_WORD.test(w) && !/^(AM|PM|A\.M\.|P\.M\.)$/.test(w));
+  // Fine when it stands alone, or when a neighbouring word is its own city/name or another code.
+  return !neighbours.length || neighbours.some((w) => (w.length === 3 && getAirport(w)) || namesAirport(w, airport));
+}
+
+function findMentions(text: string): Mention[] {
+  const out: Mention[] = [];
+  for (const m of matches(text, /\(([A-Z]{3})\)/g)) if (isAirportToken(m[1])) out.push({ index: m.index, end: m.index + m[0].length, code: m[1], kind: 'paren' });
+  for (const m of matches(text, /\b[A-Z]{3}\b/g)) {
+    if (bareCodeIsAirport(text, m.index, m.index + 3, m[0])) out.push({ index: m.index, end: m.index + 3, code: m[0], kind: 'bare' });
+  }
+  return out.sort((a, b) => a.index - b.index);
+}
+
+/** Airports named rather than coded ("London Gatwick to Marrakech"), for emails without any codes. */
+function findNameMentions(text: string): Mention[] {
+  const index = airportNameIndex();
+  const out: Mention[] = [];
+  for (const m of matches(text, /\b[A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,2}/g)) {
+    const words = m[0].split(/\s+/);
+    let offset = 0;
+    for (let i = 0; i < words.length; i++) {
+      // Longest phrase first: "Buenos Aires" before "Aires".
+      for (let len = words.length - i; len >= 1; len--) {
+        const phrase = words.slice(i, i + len).join(' ');
+        const code = index.get(phrase.toLowerCase());
+        if (code) {
+          const at = m.index + m[0].indexOf(phrase, offset);
+          out.push({ index: at, end: at + phrase.length, code, kind: 'name' });
+          i += len - 1;
+          break;
+        }
+      }
+      offset = m[0].indexOf(words[i], offset) + words[i].length;
+    }
+  }
+  return out;
+}
+
+/** Routes from consecutive airport mentions: departure then arrival, close together. */
+function pairsFromMentions(mentions: Mention[]): PairHit[] {
+  const out: PairHit[] = [];
+  for (let i = 0; i + 1 < mentions.length; i++) {
+    const [a, b] = [mentions[i], mentions[i + 1]];
+    if (a.code === b.code || b.index - a.end > 250) continue;
+    out.push({ index: a.index, end: b.end, from: a.code, to: b.code, strength: a.kind === 'paren' && b.kind === 'paren' ? 2 : 1 });
+  }
+  return out;
+}
+
 function findPairs(text: string): PairHit[] {
   const hits: PairHit[] = [];
   const arrow = /\b([A-Z]{3})\)?\s*(?:→|->|➝|➔|⟶|✈|✈️|–|—|-|>|\bto\b|\ba\b|\bhacia\b|\bpara\b|\bper\b|\bvers\b|\bnach\b)\s*(?:[^\n()]{0,40}?\()?\b([A-Z]{3})\b/g;
   for (const m of matches(text, arrow)) {
     if (m[1] !== m[2] && isAirportToken(m[1]) && isAirportToken(m[2])) hits.push({ index: m.index, end: m.index + m[0].length, from: m[1], to: m[2], strength: 3 });
   }
-  // Codes in parentheses: "San Francisco (SFO) ... New York (JFK)"
-  const parens = matches(text, /\(([A-Z]{3})\)/g).filter((m) => isAirportToken(m[1]));
-  for (let i = 0; i + 1 < parens.length; i++) {
-    const [a, b] = [parens[i], parens[i + 1]];
-    if (a[1] !== b[1] && b.index - a.index < 250) hits.push({ index: a.index, end: b.index + b[0].length, from: a[1], to: b[1], strength: 2 });
-  }
-  // Bare codes on the same line, e.g. table rows "UA110 | SFO | JFK".
-  for (const line of lineSpans(text)) {
-    const codes = matches(line.text, /\b([A-Z]{3})\b/g).filter((m) => isAirportToken(m[1], true));
-    if (codes.length >= 2 && codes[0][1] !== codes[1][1]) {
-      hits.push({ index: line.start + codes[0].index, end: line.start + codes[1].index + 3, from: codes[0][1], to: codes[1][1], strength: 1 });
-    }
-  }
+  hits.push(...pairsFromMentions(findMentions(text)));
+  // Only when no codes appear at all, fall back to airport and city names.
+  if (!hits.length) hits.push(...pairsFromMentions(findNameMentions(text)).map((p) => ({ ...p, strength: 1 })));
   // The same route is often found by several patterns; keep the strongest of overlapping hits.
   hits.sort((a, b) => a.index - b.index || b.strength - a.strength);
   const kept: PairHit[] = [];
   for (const h of hits) {
-    const clash = kept.findIndex((k) => h.index < k.end && k.index < h.end);
+    const clash = kept.findIndex((k) => h.index < k.end && k.index < h.end && k.from === h.from && k.to === h.to);
     if (clash === -1) kept.push(h);
     else if (h.strength > kept[clash].strength) kept[clash] = h;
   }
   return kept.sort((a, b) => a.index - b.index);
 }
 
-function lineSpans(text: string): { start: number; end: number; text: string }[] {
-  const out: { start: number; end: number; text: string }[] = [];
-  let start = 0;
-  for (const line of text.split('\n')) {
-    out.push({ start, end: start + line.length, text: line });
-    start += line.length + 1;
-  }
-  return out;
-}
-
-const UNASSIGNED = 1500;
+/**
+ * Cost of leaving a flight without a date or route, in characters of distance. Long HTML emails
+ * can put a summary table thousands of characters away from the flight list, so this is generous.
+ */
+const UNASSIGNED = 8000;
 
 /**
  * Matches each anchor (flight number) to at most one candidate (date or route), keeping document
@@ -341,7 +397,11 @@ export function scanText(rawText: string, email: EmailMessage): HeuristicResult 
   }
 
   const dateOf = alignInOrder(anchors, dates, text);
-  const pairOf = flights.length ? alignInOrder(anchors, pairs, text, (c) => (3 - pairs[c].strength) * 40) : anchors.map((_, i) => i);
+  // Routes that span another flight's number ("…SJO | flight 2 | LIR…") join two different flights.
+  const straddles = (p: PairHit) => anchors.some((a) => a.index > p.index && a.end < p.end);
+  const pairOf = flights.length
+    ? alignInOrder(anchors, pairs, text, (c) => (3 - pairs[c].strength) * 40 + (straddles(pairs[c]) ? 800 : 0))
+    : anchors.map((_, i) => i);
   const routeOf = (i: number) => (flights.length ? pairs[pairOf[i]] : (anchors[i] as PairHit));
   const firstUse = (i: number) => dateOf.indexOf(dateOf[i]) === i;
 

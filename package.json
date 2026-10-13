@@ -17,6 +17,7 @@
   "dependencies": {
     "idb-keyval": "^6.3.0",
     "leaflet": "^1.9.4",
+    "pdfjs-dist": "6.3.289",
     "preact": "^11.0.1"
   },
   "devDependencies": {

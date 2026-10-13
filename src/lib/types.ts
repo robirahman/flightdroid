@@ -21,6 +21,8 @@ export interface Flight {
   emailSubject?: string;
   /** Epoch ms of the email the flight came from; newer emails win when merging. */
   emailDate?: number;
+  /** Where in the email the flight was found ("airline markup", "email text", "PDF attachment …"). */
+  foundIn?: string;
   /** True once the user edits the flight, so later syncs leave it alone. */
   edited?: boolean;
 }
@@ -28,7 +30,7 @@ export interface Flight {
 /** A flight as extracted from an email, before ids and provenance are attached. */
 export type ParsedFlight = Pick<
   Flight,
-  'airline' | 'airlineName' | 'flightNumber' | 'from' | 'to' | 'departure' | 'arrival' | 'confirmation' | 'passenger' | 'confidence'
+  'airline' | 'airlineName' | 'flightNumber' | 'from' | 'to' | 'departure' | 'arrival' | 'confirmation' | 'passenger' | 'confidence' | 'foundIn'
 > & { cancelled?: boolean };
 
 export interface EmailMessage {
@@ -39,8 +41,16 @@ export interface EmailMessage {
   date: number;
   html?: string;
   text?: string;
-  /** Attachment file names (or MIME types when unnamed). */
-  attachments?: string[];
+  attachments?: Attachment[];
+}
+
+export interface Attachment {
+  /** File name, or the MIME type when the attachment has none. */
+  name: string;
+  mimeType: string;
+  /** Gmail attachment id, for downloading it. */
+  id?: string;
+  size?: number;
 }
 
 export interface Settings {

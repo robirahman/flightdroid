@@ -1,8 +1,9 @@
 import { mergeParsed } from '../lib/flights';
 import { loadFlights, loadSyncState, saveFlights, saveSyncState } from '../lib/store';
 import type { EmailMessage, Flight, ParsedFlight } from '../lib/types';
-import { parseEmail, PARSER_VERSION } from '../parse';
-import { GmailError, getMessage, listMessageIds, resetPacer, setRateLimitListener } from './api';
+import { PARSER_VERSION } from '../parse';
+import { GmailError, listMessageIds, resetPacer, setRateLimitListener } from './api';
+import { readEmail } from './read';
 import { BUILTIN_SEARCH_VERSION, syncQueries } from './query';
 
 export interface SyncProgress {
@@ -75,8 +76,9 @@ export async function syncGmail({ token, query, full: fullRequested, onProgress,
       while (next < ids.length && !failure) {
         const id = ids[next++];
         try {
-          const email = await getMessage(token, id);
-          const parsed = parseEmail(email);
+          const { email, explanation } = await readEmail(token, id);
+          const foundIn = explanation.method === 'markup' ? 'airline markup' : explanation.method === 'pdf' ? `PDF attachment ${explanation.source}` : 'email text';
+          const parsed = explanation.flights.map((f) => ({ ...f, foundIn }));
           emails.push({ email, parsed });
           found += parsed.length;
         } catch (e) {
@@ -95,6 +97,12 @@ export async function syncGmail({ token, query, full: fullRequested, onProgress,
     setRateLimitListener(undefined);
   }
 
+  // On a full re-read, flights from the re-read emails are rebuilt from scratch, so mistakes an
+  // older parser made disappear instead of lingering next to the corrected flights.
+  if (full) {
+    const reread = new Set(emails.map((e) => e.email.id));
+    flights = flights.filter((f) => f.source !== 'gmail' || f.edited || !f.messageId || !reread.has(f.messageId));
+  }
   // Keep whatever was read even if the sync stopped early; the next sync picks up the rest.
   emails.sort((a, b) => a.email.date - b.email.date);
   for (const { email, parsed } of emails) {

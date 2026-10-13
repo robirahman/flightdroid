@@ -233,10 +233,30 @@ function MissingFlight({ disabled, onDiagnose }: { disabled: boolean; onDiagnose
               ) : (
                 <span class="tag warn">{r.explanation.reason}</span>
               )}
+              {r.explanation.text && <CopyText text={`${r.subject}\n${r.from}\n\n${r.explanation.text}`} />}
             </li>
           ))}
         </ul>
       )}
     </section>
+  );
+}
+
+/** Copies what the app read from an email, so the user can share it when reporting a parsing problem. */
+function CopyText({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    try {
+      await navigator.clipboard.writeText(text.slice(0, 30000));
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    } catch {
+      prompt('Copy the email text:', text.slice(0, 30000));
+    }
+  };
+  return (
+    <button type="button" class="link-btn" onClick={copy}>
+      {copied ? 'Copied ✓' : 'Copy the text Flightdroid read'}
+    </button>
   );
 }
