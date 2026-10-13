@@ -427,7 +427,11 @@ const CONFIRMATION_LABEL =
   'codice (?:di )?prenotazione|code de reservation|buchungscode|buchungsnummer|reserva|prenotazione';
 
 function confirmationCode(text: string): string | undefined {
-  const re = new RegExp(`\\b(?:${CONFIRMATION_LABEL})\\s*(?:code|number|no\\.?|#|reference)?\\s*(?:is)?\\s*[:#]?\\s*\\|?\\s*([A-Z0-9]{6})\\b`, 'gi');
+  // "Confirmation code: ABC123", "Tu código de confirmación de JetBlue es ABC123".
+  const re = new RegExp(
+    `\\b(?:${CONFIRMATION_LABEL})\\s*(?:code|number|no\\.?|#|reference)?(?:\\s+(?:de|of|for|with)\\s+[A-Za-z]+)?\\s*(?:is|es|e|ist|est)?\\s*[:#]?\\s*\\|?\\s*([A-Z0-9]{6})\\b`,
+    'gi',
+  );
   // Labels are matched case-insensitively, but the code itself must look like one: "ZPLMQA", not "status".
   for (const m of text.matchAll(re)) if (/^[A-Z0-9]+$/.test(m[1]) && /[A-Z]/.test(m[1])) return m[1];
   return undefined;
@@ -487,8 +491,13 @@ export function scanText(rawText: string, email: EmailMessage): HeuristicResult 
     // A flight's times follow its date, or its own route/number when it shares a date with the
     // previous leg; they stop where the next flight's details begin.
     const start = firstUse(i) ? date.end : Math.min(anchor.index, pair.index);
-    const next = anchors[i + 1];
-    const nextStart = next ? Math.min(next.index, routeOf(i + 1)?.index ?? Infinity, firstUse(i + 1) ? (dates[dateOf[i + 1]]?.index ?? Infinity) : Infinity) : Infinity;
+    // The next *different* flight bounds this one's times; a repeat mention of the same flight
+    // number further down ("Vuelo # 1532" in a details box) does not.
+    const next = anchors.slice(i + 1).find((a) => !(a.number && a.number === anchor.number && a.airline === anchor.airline));
+    const nextIndex = next ? anchors.indexOf(next) : -1;
+    const nextStart = next
+      ? Math.min(next.index, routeOf(nextIndex)?.index ?? Infinity, firstUse(nextIndex) ? (dates[dateOf[nextIndex]]?.index ?? Infinity) : Infinity)
+      : Infinity;
     const end = nextStart > start ? nextStart : Infinity;
     const ts = times.filter((t) => t.index >= start && t.end <= end).slice(0, 2);
 
