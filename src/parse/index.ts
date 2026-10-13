@@ -5,7 +5,7 @@ import { parseJsonLd } from './jsonld';
 import { parseMicrodata } from './microdata';
 
 /** Bump when parsing improves, so the next sync re-reads emails that previously gave nothing. */
-export const PARSER_VERSION = 8;
+export const PARSER_VERSION = 9;
 
 export interface EmailExplanation {
   flights: ParsedFlight[];
@@ -45,10 +45,18 @@ export function explainEmail(email: EmailMessage): EmailExplanation {
     if (htmlText.length > text.length / 2) text = htmlText;
   }
   const pdfs = (email.attachments ?? []).filter(isPdf).map((a) => a.name);
+  // People discuss flights in email threads ("Person: AA 1433, TUL->CLT->NAS, $552") without
+  // booking them; only airline markup is trusted in replies. Forwarded bookings ("Fwd:") still count.
+  if (isReply(email.subject)) {
+    return { flights: [], method: 'none', reason: 'Replies in an email conversation are skipped: they usually discuss flights rather than book them.', text };
+  }
   const result = text ? explainText(text, email) : { flights: [], method: 'none' as const, reason: 'The email has no readable text.' };
   if (!result.flights.length && pdfs.length) result.reason += ` It has a PDF attachment (${pdfs.join(', ')}), which may hold the itinerary.`;
   return result;
 }
+
+/** "Re:", "RE:", "Aw:", "Sv:", "Rif:", "Res:", "Antw:" … at the start of a subject. */
+export const isReply = (subject: string) => /^\s*(re|aw|sv|vs|rif|res|r|antw|odp|ynt)\s*(\[\d+\])?\s*:/i.test(subject);
 
 /** Scans plain text (an email body or a PDF's text) for flights, explaining an empty result. */
 export function explainText(text: string, email: EmailMessage, source?: string): EmailExplanation {

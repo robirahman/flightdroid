@@ -55,3 +55,21 @@ describe('reported emails (continued)', () => {
     ]);
   });
 });
+
+describe('reported false positives', () => {
+  it('a reply in a group thread suggesting flights for other people is not a booking', () => {
+    const email: EmailMessage = {
+      id: 'r4',
+      subject: 'Re: Bahamas trip itinerary',
+      from: 'Alex Traveler <alex@example.com>',
+      date: Date.UTC(2021, 11, 19),
+      text: fixture('real-reply-thread.txt'),
+    };
+    const result = explainEmail(email);
+    expect(result.flights).toEqual([]);
+    expect(result.reason).toMatch(/Replies/);
+    // A forwarded confirmation still counts.
+    const forwarded = { ...email, subject: 'Fwd: Your trip confirmation', text: 'Confirmation code: QWERTY\nAA 495\nSat, Jan 15, 2022\nJFK 6:00 AM\nCLT 8:05 AM' };
+    expect(parseEmail(forwarded)).toEqual([expect.objectContaining({ flightNumber: '495', from: 'JFK', to: 'CLT' })]);
+  });
+});

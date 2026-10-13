@@ -1,5 +1,5 @@
 import type { EmailMessage } from '../lib/types';
-import { explainEmail, explainText, pdfCandidates, type EmailExplanation } from '../parse';
+import { explainEmail, explainText, isReply, pdfCandidates, type EmailExplanation } from '../parse';
 import { confirmationCode, foldAccents } from '../parse/heuristic';
 import { pdfToText } from '../parse/pdf';
 import { getAttachment, GmailError, getMessage } from './api';
@@ -18,6 +18,8 @@ export async function readEmail(token: string, id: string): Promise<ReadEmail> {
   const fromBody = explainEmail(email);
   if (fromBody.flights.length) return { email, explanation: fromBody };
 
+  // Replies aren't bookings; attachments in them are usually what was being discussed.
+  if (isReply(email.subject)) return { email, explanation: fromBody };
   const texts = fromBody.text ? [fromBody.text] : [];
   let lastReason = fromBody.reason;
   for (const pdf of pdfCandidates(email)) {
