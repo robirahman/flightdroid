@@ -1,0 +1,182 @@
+Booking Confirmation
+ZXQWPL
+BOOKING_REFERENCE_START
+ZXQWPL
+BOOKING_REFERENCE_END
+BOOKING_DATE_START
+31 Jul, 2026 BOOKING_DATE_END
+Issued 31 Jul, 2026
+Manage booking
+Check-In
+Thank you for choosing Air Canada. Below are your flight details and other useful information for your trip.
+IMPORTANT : This is your official itinerary/receipt. You must bring it with you to the airport for check-in. Please print/retain this page for your financial records (for taxation, expense claim or credit card reconciliation purposes).
+For a successful journey, it's essential that your travel documents are valid for entry and transit through all countries/regions on your itinerary. Remember that failure to comply with travel requirements may result in refusal to travel. For detailed information, consult our Travel Documents page and our Travel Ready hub.
+Flights
+Departure • Thu 26 Nov, 2026
+Economy Comfort
+Newark EWR
+Vancouver YVR
+18:15
+22:11
+Newark Liberty International Airport Terminal A
+Vancouver International Airport Terminal M
+AC 549 • Operated by Air Canada
+Aircraft type: Boeing 787-9 Wi-Fi
+Duration: 5hr 56m
+Cabin: Economy Class (G)
+Meal: Air Canada Bistro ($)
+Vancouver YVR
+Sydney SYD
+23:50
+09:35 +2 days
+Vancouver International Airport Terminal M
+Kingsford Smith Airport Terminal 1
+AC 33 • Operated by Air Canada
+Aircraft type: Boeing 777-200LR Wi-Fi
+Duration: 15hr 45m
+Cabin: Economy Class (G)
+Meal: Meal, Breakfast
+Return • Mon 14 Dec, 2026
+Economy Comfort
+Sydney SYD
+Vancouver YVR
+11:20
+07:45
+Kingsford Smith Airport Terminal 1
+Vancouver International Airport Terminal M
+AC 34 • Operated by Air Canada
+Aircraft type: Boeing 777-200LR Wi-Fi
+Duration: 14hr 25m
+Cabin: Economy Class (K)
+Meal: Meal, Breakfast
+Vancouver YVR
+Newark EWR
+09:45
+16:49
+Vancouver International Airport Terminal M
+Newark Liberty International Airport Terminal A
+AC 548 • Operated by Air Canada
+Aircraft type: Boeing 787-9 Wi-Fi
+Duration: 5hr 04m
+Cabin: Economy Class (K)
+Meal: Air Canada Bistro ($)
+Passengers
+Alex Traveler P0 PASSENGER_NAME_START Alex Traveler PASSENGER_NAME_END
+Ticket #: 0140000000000
+Aeroplan #: 100000000
+Seats
+EWR ➞ YVR
+19A
+YVR ➞ SYD
+19H
+SYD ➞ YVR
+21K
+YVR ➞ EWR
+19A
+Purchase Summary
+•••• 0000
+USD $47.20
+Additional charges
+1 Adult
+Air transportation charges (including surcharges)
+Base fare
+Adult
+$45.00
+Taxes, fees and charges
+Passenger Move Charge - Australia
+Adult
+$1.00
+International Passenger Service Charge - Australia
+Adult
+$1.20
+Grand total
+USD $47.20
+Check-in and boarding gate deadlines
+Check-in and baggage drop-off opens
+Get a head start and drop your bags off as early as four hours before departure.
+All destinations
+180 min1
+1
+Flights from London Heathrow Airport (LHR): 240 minutes.
+Check-in closes
+Make sure you’ve checked in and have your boarding pass in hand before the check-in deadline for your flight.
+Within Canada
+60 min1
+To/from the U.S.
+60 min
+International
+(including Mexico and the Caribbean)
+60 min
+1
+Flights from Toronto Billy Bishop (YTZ) airport, and Landline motorcoach travel from Hamilton (YHM), Kingston (YGK), Kitchener-Waterloo (YKF), Muskoka (YQA), Niagara (YCM), and Sarnia (YZR): 30 minutes.
+Baggage drop-off closes
+Make sure to drop off all checked bags before your deadline.
+Within Canada
+45 min1
+To/from the U.S.
+60 min
+International
+(including Mexico and the Caribbean)
+60 min
+1
+Flights from Toronto Billy Bishop (YTZ) airport: 25 minutes. Landline motorcoach travel from Hamilton (YHM), Kingston (YGK), Kitchener-Waterloo (YKF), Muskoka (YQA), Niagara (YCM), and Sarnia (YZR): 15 minutes.
+Boarding gate deadline
+This is the latest you should be at the departure gate, ready to board.
+Within Canada
+30 min
+To/from the U.S.
+30 min
+International
+(including Mexico and the Caribbean)
+45 min
+Boarding gate closes
+Arriving after this time will result in reassignment of reserved seats, cancellation of your reservations, or disqualification from denied boarding compensation.
+All destinations
+15 min
+Baggage allowance
+Carry-on Baggage
+On flights operated by Air Canada, Air Canada Rouge or Air Canada Express, you can bring on board:
+1 Personal item
+Maximum dimensions: 43cm x 33cm x 16cm (17in x 13in x 6in)
+Your personal item must fit under the seat in front of you.
+1 Standard article
+Maximum dimensions: 23 x 40 x 55 cm (9 x 15.5 x 21.5 in)
+Your carry-on baggage must be light enough that you can store it in the overhead bin unassisted.
+Economy Basic tickets purchased on/after January 3, 2025, allow for only 1 personal item on board when travelling within Canada, to and from the U.S. (including Hawaii and Puerto Rico) to and from Mexico, Central America and the Caribbean. Any additional bags will need to be checked in for a fee at the airport.
+Checked Baggage
+Please see below for details on the bags you plan on checking at the baggage counter.
+Newark EWR ➞ Sydney SYD
+1st Bag
+Complimentary
+2nd Bag
+Complimentary
+Max. weight per bag: Weight: up to 23 kg (50 lb)
+Sydney SYD ➞ Newark EWR
+1st Bag
+Complimentary
+2nd Bag
+Complimentary
+Max. weight per bag: Weight: up to 23 kg (50 lb)
+Fare rules
+Newark ➞ Sydney
+Economy Comfort
+Changes:
+Fully unused tickets can be reused for a new booking. The new trip must begin before Sat 31 Jul, 2027.
+The remaining value of a partially used ticket may be exchanged for a new ticket. The new trip must be completed before Fri 26 Nov, 2027 (i.e. one year from the departure date on the original ticket).
+Sydney ➞ Newark
+Economy Comfort
+Changes:
+Fully unused tickets can be reused for a new booking. The new trip must begin before Sat 31 Jul, 2027.
+The remaining value of a partially used ticket may be exchanged for a new ticket. The new trip must be completed before Fri 26 Nov, 2027 (i.e. one year from the departure date on the original ticket).
+Changes and cancellations
+You have 24 hours from the time of booking to cancel your flight without penalty. If you are unable to change or cancel your booking online, you can reach Air Canada Reservations at 1-888-247-2262 (for international and other numbers, visit [www.aircanada.com/othernumbers](https://www.aircanada.com/othernumbers)).
+Air Canada Reservations
+1 (888) 247-2262
+Air Canada, P.O. Box 64239, RPO Thorncliffe, Calgary Alberta, T2K 6J7
+CUST_NB: 100000000
+TYPE: EMAIL
+PNR: ZXQWPL
+SUBJECT_LINE: Air Canada - 26 Nov 2026: Newark - Sydney (Booking reference: ZXQWPL)
+DATE_SENT: 2026-09-21 03:40:07 AM
+EMAIL_GENERATION_DATETIME: 2026-09-21T03:40:07.607Z
+EMAIL_ADDRESS:

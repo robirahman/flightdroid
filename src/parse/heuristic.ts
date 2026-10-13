@@ -8,6 +8,8 @@ import {
   usesMonthFirstDates,
 } from '../data/airlines';
 import { airportForName, airportNameIndex, getAirport, namesAirport } from '../lib/airports';
+import { distanceKm, estimateMinutes } from '../lib/geo';
+import { wallTimeToEpoch } from '../lib/time';
 import type { EmailMessage, ParsedFlight } from '../lib/types';
 
 /** Month names and abbreviations in English, Spanish, Portuguese, Italian, French and German (accents folded). */
@@ -106,7 +108,8 @@ function findFlightNumbers(text: string): FlightHit[] {
   }
   // "Delta flight 1234", "United 110", "Aerolineas Argentinas Flight 1672"
   const named = new RegExp(
-    `\\b(${AIRLINE_NAME_ALTERNATION})\\s+(?:${FLIGHT_WORD}\\s*)?(?:#|no\\.?\\s*)?(\\d{1,4})\\b(?!\\s*(?:of\\b|de\\b|di\\b|:|[ap]\\.?m\\b|\\d))`,
+    // Same line only ("Within Canada" / "60 min" is not Air Canada flight 60), and not a quantity.
+    `\\b(${AIRLINE_NAME_ALTERNATION})[ \\t]+(?:${FLIGHT_WORD}[ \\t]*)?(?:#|no\\.?[ \\t]*)?(\\d{1,4})\\b(?![ \\t]*(?:of\\b|de\\b|di\\b|:|[ap]\\.?m\\b|\\d|min|hrs?\\b|hours?|kg\\b|lbs?\\b|km\\b|cm\\b|%|pts\\b|points))`,
     'gi',
   );
   for (const m of matches(text, named)) {
@@ -332,11 +335,14 @@ function findNameRoutesNearFlights(text: string, flights: FlightHit[]): PairHit[
 }
 
 /** Routes from consecutive airport mentions: departure then arrival, close together. */
-function pairsFromMentions(mentions: Mention[]): PairHit[] {
+function pairsFromMentions(mentions: Mention[], text: string): PairHit[] {
   const out: PairHit[] = [];
   for (let i = 0; i + 1 < mentions.length; i++) {
     const [a, b] = [mentions[i], mentions[i + 1]];
     if (a.code === b.code || b.index - a.end > 250) continue;
+    // "Hamilton (YHM), Kingston (YGK), … and Sarnia (YZR)" is a list of airports, not a route.
+    const between = text.slice(a.end, b.index);
+    if (!between.includes('\n') && /,|\b(?:and|or|y|o|e|et|und)\b/i.test(between) && !/→|->|➝|➞|➔|–|—| - |>|\bto\b|\d[:.]\d\d/.test(between)) continue;
     out.push({ index: a.index, end: b.end, from: a.code, to: b.code, strength: a.kind === 'paren' && b.kind === 'paren' ? 2 : 1 });
   }
   return out;
@@ -344,7 +350,7 @@ function pairsFromMentions(mentions: Mention[]): PairHit[] {
 
 function findPairs(text: string): PairHit[] {
   const hits: PairHit[] = [];
-  const arrow = /\b([A-Z]{3})\)?\s*(?:→|->|➝|➔|⟶|✈|✈️|–|—|-|>|\bto\b|\ba\b|\bhacia\b|\bpara\b|\bper\b|\bvers\b|\bnach\b)\s*(?:[^\n()]{0,40}?\()?\b([A-Z]{3})\b/g;
+  const arrow = /\b([A-Z]{3})\)?\s*(?:→|->|➝|➞|➔|⟶|✈|✈️|–|—|-|>|\bto\b|\ba\b|\bhacia\b|\bpara\b|\bper\b|\bvers\b|\bnach\b)\s*(?:[^\n()]{0,40}?\()?\b([A-Z]{3})\b/g;
   for (const m of matches(text, arrow)) {
     if (m[1] === m[2] || !isAirportToken(m[1]) || !isAirportToken(m[2])) continue;
     // "YTZ-YHM" could be a fare or ticket code; small airports need parentheses or a time nearby.
@@ -353,7 +359,7 @@ function findPairs(text: string): PairHit[] {
     if (afterCodeLabel(text, m.index)) continue;
     hits.push({ index: m.index, end: m.index + m[0].length, from: m[1], to: m[2], strength: 3 });
   }
-  hits.push(...pairsFromMentions(findMentions(text)));
+  hits.push(...pairsFromMentions(findMentions(text), text));
   // Only when no codes appear at all, fall back to airport and city names.
   if (!hits.length) hits.push(...findNameRoutes(text));
   // The same route is often found by several patterns; keep the strongest of overlapping hits.
@@ -421,8 +427,41 @@ function alignInOrder(anchors: Hit[], candidates: Hit[], text: string, penalty: 
   return result;
 }
 
+const SECTION_HEADER =
+  /(departure|depart|departing|outbound|return|returning|inbound|ida|vuelta|regreso|salida|andata|ritorno|aller|retour|hinflug|r[uü]ckflug)\b[^\d]{0,14}$/i;
+
+/** "Departure • Thu 26 Nov, 2026", "Return · Date: 03/21/2024", "Vuelo de ida" + next line date. */
+function isSectionHeader(d: DateHit, text: string): boolean {
+  const m = SECTION_HEADER.exec(text.slice(Math.max(0, d.index - 30), d.index));
+  return !!m && (m[0].match(/\n/g)?.length ?? 0) <= 1;
+}
+
+/**
+ * Days between departure and arrival dates when the email shows only times. An explicit "+2 days"
+ * wins; otherwise the offset whose flight duration (using both airports' time zones) is closest
+ * to what the distance suggests — so Sydney 11:20 → Vancouver 07:45 lands the same day.
+ */
+function arrivalDayOffset(text: string, arrTime: TimeHit, departure: string, arrMinutes: number, from: string, to: string, earlierClock: boolean): number {
+  const marker = /^\s*\+\s*(\d)\s*(?:days?|dias?|días?|jours?|tage?|giorni?|d)?\b/i.exec(text.slice(arrTime.end, arrTime.end + 20));
+  if (marker) return Number(marker[1]);
+  const [a, b] = [getAirport(from), getAirport(to)];
+  if (!a?.tz || !b?.tz) return earlierClock ? 1 : 0;
+  const expected = estimateMinutes(distanceKm([a.lat, a.lon], [b.lat, b.lon]));
+  const departs = wallTimeToEpoch(departure, a.tz);
+  let best = earlierClock ? 1 : 0;
+  let bestGap = Infinity;
+  for (const offset of [-1, 0, 1, 2]) {
+    const arrives = wallTimeToEpoch(wall(...(addDays(departure.slice(0, 10), offset).split('-').map(Number) as [number, number, number]), arrMinutes), b.tz);
+    const minutes = (arrives - departs) / 60000;
+    if (minutes < 15 || minutes > 24 * 60) continue;
+    const gap = Math.abs(minutes - expected);
+    if (gap < bestGap) [best, bestGap] = [offset, gap];
+  }
+  return best;
+}
+
 const NOT_A_FLIGHT_DATE =
-  /(booked|booking date|issued|issue date|date of issue|purchased?|ordered|transaction|invoice|payment|paid|emision|emission|fecha de (?:compra|reserva)|emitid[oa]|data (?:de )?(?:emissao|compra)|emesso|emissione|ausgestellt)[^\n\d]{0,25}$/i;
+  /(booked|booking[ _]date|issued|issue date|date of issue|purchased?|ordered|transaction|invoice|payment|paid|emision|emission|fecha de (?:compra|reserva)|emitid[oa]|data (?:de )?(?:emissao|compra)|emesso|emissione|ausgestellt)[^\n\d]{0,25}$/i;
 
 const ARRIVAL_LABEL = /(arriv\w*|llegada|llega|chegada|arrivo|ankunft|\barr\.?)[^\n\d]{0,20}$/i;
 
@@ -536,25 +575,40 @@ export function scanText(rawText: string, email: EmailMessage): HeuristicResult 
     ? alignInOrder(anchors, pairs, text, (c) => (3 - pairs[c].strength) * 40 + (straddles(pairs[c]) ? 800 : 0))
     : anchors.map((_, i) => i);
   const routeOf = (i: number) => (flights.length ? pairs[pairOf[i]] : (anchors[i] as PairHit));
-  const firstUse = (i: number) => dateOf.indexOf(dateOf[i]) === i;
+  // Where a flight's details begin: its route or its number, whichever comes first.
+  const keyOf = (i: number) => Math.min(anchors[i].index, routeOf(i)?.index ?? anchors[i].index);
+
+  // Emails with section headers ("Departure • Thu 26 Nov", "Vuelo de ida / Sábado, 15 de marzo")
+  // list every leg of that section under one date: each flight takes the latest date in its own
+  // block, or else the latest header above it.
+  const headers = dates.map((d) => isSectionHeader(d, text));
+  if (headers.some(Boolean)) {
+    anchors.forEach((_, i) => {
+      const key = keyOf(i);
+      const blockStart = i > 0 ? anchors[i - 1].end : 0;
+      const usable = (c: number) => dates[c].index < key && datePenalty(dates[c], text, times, email.date) < 1000;
+      const own = dates.map((_, c) => c).filter((c) => usable(c) && dates[c].index >= blockStart);
+      const header = dates.map((_, c) => c).filter((c) => headers[c] && dates[c].index < key);
+      const pick = own.length ? own[own.length - 1] : header[header.length - 1];
+      if (pick !== undefined) dateOf[i] = pick;
+    });
+  }
 
   const out: ParsedFlight[] = [];
   anchors.forEach((anchor, i) => {
     const date = dates[dateOf[i]];
     const pair = routeOf(i);
     if (!date || !pair) return;
-    // A flight's times follow its date, or its own route/number when it shares a date with the
-    // previous leg; they stop where the next flight's details begin.
-    const start = firstUse(i) ? date.end : Math.min(anchor.index, pair.index);
-    // The next *different* flight bounds this one's times; a repeat mention of the same flight
-    // number further down ("Vuelo # 1532" in a details box) does not.
+    // A flight's times sit in its own block: from where its details begin to where the next
+    // *different* flight's begin (a repeat mention like "Vuelo # 1532" further down doesn't count).
+    const start = keyOf(i);
     const next = anchors.slice(i + 1).find((a) => !(a.number && a.number === anchor.number && a.airline === anchor.airline));
-    const nextIndex = next ? anchors.indexOf(next) : -1;
-    const nextStart = next
-      ? Math.min(next.index, routeOf(nextIndex)?.index ?? Infinity, firstUse(nextIndex) ? (dates[dateOf[nextIndex]]?.index ?? Infinity) : Infinity)
-      : Infinity;
-    const end = nextStart > start ? nextStart : Infinity;
-    let ts = times.filter((t) => t.index >= start && t.end <= end).slice(0, 2);
+    const nextKey = next ? keyOf(anchors.indexOf(next)) : Infinity;
+    const end = nextKey > start ? nextKey : Infinity;
+    const inBlock = times.filter((t) => t.index >= start && t.end <= end);
+    // When the block contains the date, the times are the ones after it.
+    const afterDate = date.index >= start && date.end <= end ? inBlock.filter((t) => t.index >= date.end) : [];
+    let ts = (afterDate.length ? afterDate : inBlock).slice(0, 2);
     // Tables can print the times on a row above the flight number and date.
     if (!ts.length) {
       const [near, far] = lineWindow(text, anchor.index, anchor.end, 2, 2);
@@ -567,8 +621,9 @@ export function scanText(rawText: string, email: EmailMessage): HeuristicResult 
     if (ts[1]) {
       // A later date between the two times means an overnight arrival.
       const arrDate = dates.find((d) => d.index > ts[0].end && d.end <= ts[1].index);
-      let day = arrDate ? wall(resolveYear(arrDate, email.date), arrDate.month, arrDate.day) : departure.slice(0, 10);
-      if (!arrDate && ts[1].minutes < ts[0].minutes) day = addDays(day, 1);
+      const day = arrDate
+        ? wall(resolveYear(arrDate, email.date), arrDate.month, arrDate.day)
+        : addDays(departure.slice(0, 10), arrivalDayOffset(text, ts[1], departure, ts[1].minutes, pair.from, pair.to, ts[1].minutes < ts[0].minutes));
       arrival = wall(...(day.split('-').map(Number) as [number, number, number]), ts[1].minutes);
     }
     const code = anchor.airline ?? carrier ?? '';

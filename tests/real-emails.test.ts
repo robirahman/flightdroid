@@ -37,3 +37,21 @@ describe('reported PDFs', () => {
     ]);
   });
 });
+
+describe('reported emails (continued)', () => {
+  it('Air Canada: two legs per date header, date-line crossing, airport-list footnote', () => {
+    const email: EmailMessage = {
+      id: 'r3',
+      subject: 'Air Canada - 26 Nov 2026: Newark - Sydney (Booking reference: ZXQWPL)',
+      from: 'Air Canada <notification@notification.aircanada.ca>',
+      date: Date.UTC(2026, 8, 21),
+      text: fixture('real-aircanada-en.txt'),
+    };
+    expect(parseEmail(email).map((f) => `${f.airline}${f.flightNumber} ${f.from}-${f.to} ${f.departure} ${f.arrival} ${f.confirmation}`)).toEqual([
+      'AC549 EWR-YVR 2026-11-26T18:15 2026-11-26T22:11 ZXQWPL',
+      'AC33 YVR-SYD 2026-11-26T23:50 2026-11-28T09:35 ZXQWPL',
+      'AC34 SYD-YVR 2026-12-14T11:20 2026-12-14T07:45 ZXQWPL',
+      'AC548 YVR-EWR 2026-12-14T09:45 2026-12-14T16:49 ZXQWPL',
+    ]);
+  });
+});
