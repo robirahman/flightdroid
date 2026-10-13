@@ -34,7 +34,12 @@ export function explainEmail(email: EmailMessage): EmailExplanation {
   if (email.html) {
     const doc = new DOMParser().parseFromString(email.html, 'text/html');
     const structured = [...parseJsonLd(doc), ...parseMicrodata(doc)];
-    if (structured.length) return { flights: dedupe(structured), method: 'markup' };
+    if (structured.length) {
+      // Keep the raw airline markup alongside the text, so a misread flight can be traced to it.
+      const markup = [...doc.querySelectorAll('script[type="application/ld+json"]')].map((s) => s.textContent?.trim()).filter(Boolean);
+      const text = `${htmlToText(doc)}${markup.length ? `\n\n--- airline markup ---\n${markup.join('\n')}` : ''}`;
+      return { flights: dedupe(structured), method: 'markup', text };
+    }
     const htmlText = htmlToText(doc);
     // Prefer the HTML rendering: plain-text alternatives are often truncated summaries.
     if (htmlText.length > text.length / 2) text = htmlText;

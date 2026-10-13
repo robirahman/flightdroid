@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { getAccessToken, loadScript, signOut } from './gmail/auth';
 import { diagnoseSearch } from './gmail/diagnose';
+import { readEmail } from './gmail/read';
 import { scanKeyFor, syncGmail, type SyncProgress } from './gmail/sync';
 import { demoFlights } from './lib/demo';
 import { describe, flightKey, sortFlights } from './lib/flights';
@@ -113,6 +114,12 @@ export function App() {
     }
   };
 
+  /** What the app read from a flight's source email, for reporting a misread flight. */
+  const sourceText = async (f: Flight) => {
+    const { email, explanation } = await readEmail(await getAccessToken(settings.clientId), f.messageId!);
+    return `${email.subject}\n${email.from}\nFound in: ${f.foundIn ?? '?'}\n\n${explanation.text ?? '(no text)'}`;
+  };
+
   const exportJson = () => {
     const blob = new Blob([JSON.stringify({ app: 'flightdroid', version: 1, flights }, null, 2)], { type: 'application/json' });
     const a = document.createElement('a');
@@ -214,7 +221,7 @@ export function App() {
           </button>
         ))}
       </nav>
-      {sheet && <FlightSheet key={sheet.flight?.id ?? 'new'} flight={sheet.flight} units={settings.units} onClose={() => setSheet(undefined)} onSave={saveFlight} onDelete={deleteFlight} />}
+      {sheet && <FlightSheet key={sheet.flight?.id ?? 'new'} flight={sheet.flight} units={settings.units} onClose={() => setSheet(undefined)} onSave={saveFlight} onDelete={deleteFlight} onSourceText={sourceText} />}
       {toast && (
         <div class={`toast${toast.error ? ' error' : ''}`} role={toast.error ? 'alert' : 'status'}>
           <span>{toast.text}</span>

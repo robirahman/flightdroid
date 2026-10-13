@@ -62,4 +62,13 @@ test('syncs Gmail in the browser, reading a PDF e-ticket and a Spanish confirmat
   await expect(page.locator('.list-view')).toContainText('AV 9532');
   await page.locator('.flight-row', { hasText: 'BA 2662' }).click();
   await expect(page.getByRole('dialog')).toContainText('PDF attachment E-ticket.pdf');
+
+  // Reporting a misread flight: copy what the app read from its source email.
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('button', { name: /Copy the email text/ }).click();
+  await expect(page.getByRole('button', { name: 'Copied ✓' })).toBeVisible();
+  const copied = await page.evaluate(() => navigator.clipboard.readText());
+  expect(copied).toContain('Itinerary 642804');
+  expect(copied).toContain('--- E-ticket.pdf ---');
+  expect(copied).toMatch(/BA 2662[^\n]*LGW[^\n]*RAK/);
 });

@@ -14,9 +14,11 @@ interface Props {
   onClose: () => void;
   onSave: (f: Flight) => void;
   onDelete: (f: Flight) => void;
+  /** Fetches the text the app read from the flight's source email. */
+  onSourceText?: (f: Flight) => Promise<string>;
 }
 
-export function FlightSheet({ flight, units, onClose, onSave, onDelete }: Props) {
+export function FlightSheet({ flight, units, onClose, onSave, onDelete, onSourceText }: Props) {
   const [editing, setEditing] = useState(!flight);
   return (
     <div class="sheet-backdrop" onClick={onClose}>
@@ -33,14 +35,44 @@ export function FlightSheet({ flight, units, onClose, onSave, onDelete }: Props)
             }}
           />
         ) : (
-          <FlightDetails flight={flight!} units={units} onEdit={() => setEditing(true)} onDelete={() => onDelete(flight!)} onClose={onClose} />
+          <FlightDetails flight={flight!} units={units} onEdit={() => setEditing(true)} onDelete={() => onDelete(flight!)} onClose={onClose} onSourceText={onSourceText} />
         )}
       </div>
     </div>
   );
 }
 
-function FlightDetails({ flight: f, units, onEdit, onDelete, onClose }: { flight: Flight; units: Settings['units']; onEdit: () => void; onDelete: () => void; onClose: () => void }) {
+function FlightDetails({
+  flight: f,
+  units,
+  onEdit,
+  onDelete,
+  onClose,
+  onSourceText,
+}: {
+  flight: Flight;
+  units: Settings['units'];
+  onEdit: () => void;
+  onDelete: () => void;
+  onClose: () => void;
+  onSourceText?: (f: Flight) => Promise<string>;
+}) {
+  const [copyState, setCopyState] = useState<string>();
+  const copySource = async () => {
+    setCopyState('Fetching…');
+    try {
+      const text = (await onSourceText!(f)).slice(0, 30000);
+      try {
+        await navigator.clipboard.writeText(text);
+        setCopyState('Copied ✓');
+      } catch {
+        prompt('Copy the email text:', text);
+        setCopyState(undefined);
+      }
+    } catch (e) {
+      setCopyState(e instanceof Error ? e.message : 'Could not fetch the email');
+    }
+  };
   const info = describe(f);
   const name = f.airlineName || airlineName(f.airline);
   const rows: [string, string | undefined][] = [
@@ -99,6 +131,11 @@ function FlightDetails({ flight: f, units, onEdit, onDelete, onClose }: { flight
           <span>{f.emailSubject || 'Open email'}</span>
           <Icon name="external" size={14} />
         </a>
+      )}
+      {f.source === 'gmail' && f.messageId && onSourceText && (
+        <button type="button" class="link-btn" onClick={copySource}>
+          {copyState ?? 'Copy the email text Flightdroid read (to report a mistake)'}
+        </button>
       )}
       <div class="row actions">
         <button class="btn" onClick={onEdit}>
