@@ -388,6 +388,24 @@ details summary {
   z-index: 50;
   box-shadow: 0 6px 24px rgb(0 0 0 / 0.3);
   animation: rise 0.2s ease-out;
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+.toast span {
+  flex: 1;
+}
+.toast.error {
+  background: var(--danger);
+  color: #fff;
+}
+.toast-close {
+  flex: none;
+  border: 0;
+  background: none;
+  color: inherit;
+  padding: 2px;
+  opacity: 0.8;
 }
 
 @keyframes rise {

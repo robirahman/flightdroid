@@ -1,13 +1,13 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import type { SyncProgress } from '../gmail/sync';
-import { DEFAULT_QUERY } from '../lib/store';
+import { DEFAULT_QUERY, type SyncState } from '../lib/store';
 import type { Settings } from '../lib/types';
 import { Icon } from './icons';
 
 interface Props {
   settings: Settings;
   flightCount: number;
-  lastSync?: number;
+  syncState: Pick<SyncState, 'lastSync' | 'lastAttempt'>;
   progress?: SyncProgress;
   syncing: boolean;
   onSettings: (s: Settings) => void;
@@ -26,6 +26,9 @@ export function SettingsView(p: Props) {
   const [query, setQuery] = useState(p.settings.query);
   const dirty = clientId.trim() !== p.settings.clientId || query.trim() !== p.settings.query;
   const pct = p.progress && p.progress.total ? Math.round((p.progress.done / p.progress.total) * 100) : 0;
+  const waitSeconds = useCountdown(p.progress?.phase === 'waiting' ? p.progress.resumeAt : undefined);
+  const { lastSync, lastAttempt } = p.syncState;
+  const stoppedEarly = !p.syncing && lastAttempt && !lastAttempt.complete;
 
   return (
     <div class="settings-view scroll">
@@ -47,12 +50,20 @@ export function SettingsView(p: Props) {
             <p class="muted">
               {p.progress.phase === 'searching' && `Searching… ${p.progress.total ? `${p.progress.total} matching emails` : ''}`}
               {p.progress.phase === 'reading' && `Reading ${p.progress.done} of ${p.progress.total} emails · ${p.progress.found} flights found`}
+              {p.progress.phase === 'waiting' &&
+                `Gmail asked us to slow down — resuming in ${waitSeconds}s · ${p.progress.done} of ${p.progress.total} emails read`}
               {p.progress.phase === 'done' && `Done · read ${p.progress.total} new emails · ${p.progress.found} flight mentions`}
             </p>
           </div>
         )}
+        {stoppedEarly && (
+          <p class="notice">
+            The last sync stopped after reading {lastAttempt.read} of {lastAttempt.total} emails.{' '}
+            {lastAttempt.error ?? 'Tap Sync Gmail to continue where it left off.'}
+          </p>
+        )}
         <p class="muted small">
-          {p.lastSync ? `Last synced ${new Date(p.lastSync).toLocaleString()}` : 'Never synced'} · {p.flightCount} flights saved
+          {lastSync ? `Last full sync ${new Date(lastSync).toLocaleString()}` : 'No full sync yet'} · {p.flightCount} flights saved
         </p>
         <div class="row">
           <button class="btn small" disabled={p.syncing || !p.settings.clientId} onClick={() => p.onSync(true)}>
@@ -140,4 +151,16 @@ export function SettingsView(p: Props) {
       <p class="muted small center">Flightdroid · map tiles © Esri, HERE, Garmin, © OpenStreetMap contributors</p>
     </div>
   );
+}
+
+/** Whole seconds until `until`, ticking every second; 0 when there is nothing to count down to. */
+function useCountdown(until: number | undefined): number {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    if (!until) return;
+    setNow(Date.now());
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [until]);
+  return until ? Math.max(0, Math.ceil((until - now) / 1000)) : 0;
 }

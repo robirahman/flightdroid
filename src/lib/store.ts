@@ -15,7 +15,10 @@ export const DEFAULT_SETTINGS: Settings = {
 export interface SyncState {
   processedIds: string[];
   deletedKeys: string[];
+  /** When the last sync that read every matching email finished. */
   lastSync?: number;
+  /** The most recent sync, complete or not, so an interrupted one can be explained. */
+  lastAttempt?: { at: number; complete: boolean; read: number; total: number; error?: string };
 }
 
 export const loadFlights = async () => (await get<Flight[]>('flights', db)) ?? [];

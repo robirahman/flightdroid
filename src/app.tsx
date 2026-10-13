@@ -3,7 +3,7 @@ import { getAccessToken, loadScript, signOut } from './gmail/auth';
 import { syncGmail, type SyncProgress } from './gmail/sync';
 import { demoFlights } from './lib/demo';
 import { describe, flightKey, sortFlights } from './lib/flights';
-import { clearAll, DEFAULT_SETTINGS, loadFlights, loadSettings, loadSyncState, saveFlights, saveSettings, saveSyncState } from './lib/store';
+import { clearAll, DEFAULT_SETTINGS, loadFlights, loadSettings, loadSyncState, saveFlights, saveSettings, saveSyncState, type SyncState } from './lib/store';
 import { wallYear } from './lib/time';
 import type { Flight, Settings } from './lib/types';
 import { FlightSheet } from './ui/FlightSheet';
@@ -30,19 +30,21 @@ export function App() {
   const [loaded, setLoaded] = useState(false);
   const [flights, setFlights] = useState<Flight[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [lastSync, setLastSync] = useState<number>();
+  const [syncState, setSyncState] = useState<Pick<SyncState, 'lastSync' | 'lastAttempt'>>({});
   const [tab, setTabState] = useState<Tab>(initialTab);
   const [year, setYear] = useState<number | 'all'>('all');
   const [sheet, setSheet] = useState<{ flight?: Flight } | undefined>();
   const [progress, setProgress] = useState<SyncProgress>();
   const [syncing, setSyncing] = useState(false);
-  const [toast, setToast] = useState<string>();
+  // Errors stay up until dismissed; other notices fade after a few seconds.
+  const [toast, setToastState] = useState<{ text: string; error?: boolean }>();
+  const setToast = (text: string | undefined, error = false) => setToastState(text ? { text, error } : undefined);
 
   useEffect(() => {
     Promise.all([loadFlights(), loadSettings(), loadSyncState()]).then(([f, s, sync]) => {
       setFlights(f);
       setSettings(s);
-      setLastSync(sync.lastSync);
+      setSyncState(sync);
       setLoaded(true);
     });
     const onHash = () => setTabState(initialTab());
@@ -55,7 +57,7 @@ export function App() {
   }, [settings.clientId]);
 
   useEffect(() => {
-    if (!toast) return;
+    if (!toast || toast.error) return;
     const t = setTimeout(() => setToast(undefined), 4000);
     return () => clearTimeout(t);
   }, [toast]);
@@ -85,12 +87,12 @@ export function App() {
       const before = flights.length;
       const result = await syncGmail({ token, query: settings.query, full, onProgress: setProgress, onFlights: setFlights });
       setFlights(result);
-      setLastSync(Date.now());
       const added = result.length - before;
       setToast(added > 0 ? `Found ${added} new flight${added === 1 ? '' : 's'}` : 'Sync complete — no new flights');
     } catch (e) {
-      setToast(e instanceof Error ? e.message : String(e));
+      setToast(e instanceof Error ? e.message : String(e), true);
     } finally {
+      setSyncState(await loadSyncState());
       setSyncing(false);
     }
   };
@@ -128,7 +130,7 @@ export function App() {
       update([...flights, ...fresh]);
       setToast(`Imported ${fresh.length} flight${fresh.length === 1 ? '' : 's'}`);
     } catch {
-      setToast('That file is not a Flightdroid export.');
+      setToast('That file is not a Flightdroid export.', true);
     }
   };
 
@@ -179,7 +181,7 @@ export function App() {
           <SettingsView
             settings={settings}
             flightCount={flights.length}
-            lastSync={lastSync}
+            syncState={syncState}
             progress={progress}
             syncing={syncing}
             onSettings={changeSettings}
@@ -194,7 +196,7 @@ export function App() {
             onClear={async () => {
               await clearAll();
               setFlights([]);
-              setLastSync(undefined);
+              setSyncState({});
               setProgress(undefined);
               setToast('All data deleted');
             }}
@@ -211,8 +213,11 @@ export function App() {
       </nav>
       {sheet && <FlightSheet key={sheet.flight?.id ?? 'new'} flight={sheet.flight} units={settings.units} onClose={() => setSheet(undefined)} onSave={saveFlight} onDelete={deleteFlight} />}
       {toast && (
-        <div class="toast" role="status">
-          {toast}
+        <div class={`toast${toast.error ? ' error' : ''}`} role={toast.error ? 'alert' : 'status'}>
+          <span>{toast.text}</span>
+          <button class="toast-close" aria-label="Dismiss" onClick={() => setToast(undefined)}>
+            <Icon name="close" size={16} />
+          </button>
         </div>
       )}
     </div>

@@ -22,27 +22,102 @@ export class GmailError extends Error {
   constructor(
     message: string,
     readonly status: number,
+    /** True when Gmail refused because of a quota or rate limit rather than a real error. */
+    readonly rateLimited = false,
   ) {
     super(message);
   }
 }
 
-async function request<T>(token: string, path: string, attempt = 0): Promise<T> {
-  const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
-  if ((res.status === 429 || res.status >= 500) && attempt < 4) {
-    await new Promise((r) => setTimeout(r, 500 * 2 ** attempt + Math.random() * 250));
-    return request(token, path, attempt + 1);
-  }
-  if (!res.ok) {
-    let message = `Gmail API error ${res.status}`;
-    try {
-      message = (await res.json()).error?.message ?? message;
-    } catch {
-      /* keep the generic message */
+/** Tunables, exported so tests can shrink the waits. */
+export const limits = {
+  /** Gap between requests at full speed: 20 requests/s, well under Gmail's 250 units/s per user. */
+  minIntervalMs: 50,
+  /** Slowest pace after repeated rate limiting. */
+  maxIntervalMs: 2000,
+  /** First wait after a rate limit; doubles per retry up to `maxBackoffMs`. */
+  baseBackoffMs: 5000,
+  /** Gmail's per-user quotas are per minute, so waiting a minute always gets a fresh allowance. */
+  maxBackoffMs: 60000,
+  maxAttempts: 8,
+};
+
+export type RateLimitListener = (waitMs: number) => void;
+let onRateLimit: RateLimitListener | undefined;
+export function setRateLimitListener(listener: RateLimitListener | undefined) {
+  onRateLimit = listener;
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Spaces requests out across all concurrent callers. Each rate-limit response pauses everyone
+ * and halves the pace; successes slowly speed it back up.
+ */
+const pacer = {
+  interval: 0,
+  nextSlot: 0,
+  async slot() {
+    this.interval ||= limits.minIntervalMs;
+    const now = Date.now();
+    const at = Math.max(now, this.nextSlot);
+    this.nextSlot = at + this.interval;
+    if (at > now) await sleep(at - now);
+  },
+  slowDown(pauseMs: number) {
+    this.interval = Math.min(limits.maxIntervalMs, (this.interval || limits.minIntervalMs) * 2);
+    this.nextSlot = Math.max(this.nextSlot, Date.now() + pauseMs);
+  },
+  speedUp() {
+    this.interval = Math.max(limits.minIntervalMs, this.interval * 0.95);
+  },
+  reset() {
+    this.interval = 0;
+    this.nextSlot = 0;
+  },
+};
+export const resetPacer = () => pacer.reset();
+
+interface ErrorBody {
+  error?: { message?: string; status?: string; errors?: { reason?: string }[]; details?: { reason?: string }[] };
+}
+
+function isRateLimit(status: number, body: ErrorBody): boolean {
+  if (status === 429) return true;
+  const e = body.error;
+  const reasons = [e?.status, ...(e?.errors ?? []).map((x) => x.reason), ...(e?.details ?? []).map((x) => x.reason)];
+  return status === 403 && reasons.some((r) => r && /rateLimitExceeded|RATE_LIMIT_EXCEEDED|RESOURCE_EXHAUSTED|quotaExceeded/i.test(r));
+}
+
+async function request<T>(token: string, path: string): Promise<T> {
+  for (let attempt = 1; ; attempt++) {
+    await pacer.slot();
+    const res = await fetch(`${BASE}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+    if (res.ok) {
+      pacer.speedUp();
+      return res.json();
     }
-    throw new GmailError(message, res.status);
+    let body: ErrorBody = {};
+    try {
+      body = await res.json();
+    } catch {
+      /* not JSON; keep the generic message */
+    }
+    const message = body.error?.message ?? `Gmail API error ${res.status}`;
+    const rateLimited = isRateLimit(res.status, body);
+    if (attempt < limits.maxAttempts && (rateLimited || res.status >= 500)) {
+      const retryAfter = Number(res.headers.get('Retry-After')) * 1000;
+      const backoff = rateLimited ? limits.baseBackoffMs * 2 ** (attempt - 1) : 500 * 2 ** attempt;
+      const wait = Math.min(limits.maxBackoffMs, retryAfter > 0 ? retryAfter : backoff) + Math.random() * 250;
+      if (rateLimited) {
+        pacer.slowDown(wait);
+        onRateLimit?.(wait);
+      }
+      await sleep(wait);
+      continue;
+    }
+    throw new GmailError(message, res.status, rateLimited);
   }
-  return res.json();
 }
 
 /** All message ids matching a Gmail search query. */
