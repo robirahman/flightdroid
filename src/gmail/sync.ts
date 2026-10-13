@@ -1,8 +1,9 @@
 import { mergeParsed } from '../lib/flights';
 import { loadFlights, loadSyncState, saveFlights, saveSyncState } from '../lib/store';
 import type { EmailMessage, Flight, ParsedFlight } from '../lib/types';
-import { parseEmail } from '../parse';
+import { parseEmail, PARSER_VERSION } from '../parse';
 import { GmailError, getMessage, listMessageIds, resetPacer, setRateLimitListener } from './api';
+import { BUILTIN_SEARCH_VERSION, syncQueries } from './query';
 
 export interface SyncProgress {
   phase: 'searching' | 'reading' | 'waiting' | 'done';
@@ -15,6 +16,7 @@ export interface SyncProgress {
 
 export interface SyncOptions {
   token: string;
+  /** The user's own Gmail search, or '' for the built-in searches. */
   query: string;
   /** Re-read emails that were already processed. */
   full?: boolean;
@@ -24,9 +26,25 @@ export interface SyncOptions {
 
 const CONCURRENCY = 5;
 
+/** Identifies what a sync searched for and how it parsed; a change means older results are stale. */
+export const scanKeyFor = (query: string) => `${PARSER_VERSION}|${query.trim() || `builtin-${BUILTIN_SEARCH_VERSION}`}`;
+
+/** Union of the ids matching any of the queries, in first-seen order. */
+async function searchAll(token: string, queries: string[], onCount: (n: number) => void): Promise<string[]> {
+  const ids = new Set<string>();
+  for (const q of queries) {
+    for (const id of await listMessageIds(token, q)) ids.add(id);
+    onCount(ids.size);
+  }
+  return [...ids];
+}
+
 /** Searches Gmail, parses new messages and merges their flights into storage. */
-export async function syncGmail({ token, query, full, onProgress, onFlights }: SyncOptions): Promise<Flight[]> {
+export async function syncGmail({ token, query, full: fullRequested, onProgress, onFlights }: SyncOptions): Promise<Flight[]> {
   const state = await loadSyncState();
+  // Better parsing or a different search can find flights in emails read before, so read them all again.
+  const scanKey = scanKeyFor(query);
+  const full = fullRequested || state.scanKey !== scanKey;
   const processed = new Set(full ? [] : state.processedIds);
   const deleted = new Set(state.deletedKeys);
   let flights = await loadFlights();
@@ -45,7 +63,8 @@ export async function syncGmail({ token, query, full, onProgress, onFlights }: S
     onProgress?.({ phase, total: 0, done: 0, found: 0 });
     // Overlap the previous sync by two days in case of delayed delivery; processed ids dedupe.
     const after = !full && state.lastSync ? ` after:${Math.floor((state.lastSync - 2 * 86400000) / 1000)}` : '';
-    const ids = (await listMessageIds(token, query + after, (n) => onProgress?.({ phase, total: n, done: 0, found: 0 }))).filter((id) => !processed.has(id));
+    const queries = syncQueries(query).map((q) => q + after);
+    const ids = (await searchAll(token, queries, (n) => onProgress?.({ phase, total: n, done: 0, found: 0 }))).filter((id) => !processed.has(id));
     total = ids.length;
     phase = 'reading';
 
@@ -87,7 +106,10 @@ export async function syncGmail({ token, query, full, onProgress, onFlights }: S
   await saveSyncState({
     ...state,
     processedIds: [...processed],
-    lastSync: failure ? state.lastSync : startedAt,
+    // An interrupted full read must not leave an old lastSync behind, or resuming would only
+    // search recent mail and skip the older emails this run never reached.
+    lastSync: failure ? (full ? undefined : state.lastSync) : startedAt,
+    scanKey,
     lastAttempt: { at: Date.now(), complete: !failure, read: emails.length, total, error },
   });
   onFlights?.(flights);

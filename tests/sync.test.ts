@@ -1,8 +1,10 @@
 import 'fake-indexeddb/auto';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { limits } from '../src/gmail/api';
-import { syncGmail, type SyncProgress } from '../src/gmail/sync';
-import { clearAll, loadFlights, loadSyncState } from '../src/lib/store';
+import { diagnoseSearch } from '../src/gmail/diagnose';
+import { builtinQueries } from '../src/gmail/query';
+import { scanKeyFor, syncGmail, type SyncProgress } from '../src/gmail/sync';
+import { clearAll, loadFlights, loadSettings, loadSyncState, saveSettings, saveSyncState } from '../src/lib/store';
 
 const b64url = (s: string) => Buffer.from(s, 'utf8').toString('base64').replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
 
@@ -105,5 +107,67 @@ describe('syncGmail rate limits', () => {
     vi.stubGlobal('fetch', fetchMock);
     await expect(syncGmail({ token: 't', query: 'q' })).rejects.toThrow('Insufficient Permission');
     expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+});
+
+describe('re-reading after improvements', () => {
+  it('re-reads already processed emails when the parser or search changed', async () => {
+    fakeGmail(3, () => false);
+    await syncGmail({ token: 't', query: 'q' });
+    // Simulate a sync made by an older version of the app.
+    await saveSyncState({ ...(await loadSyncState()), scanKey: '1|q' });
+
+    const fetchMock = fakeGmail(3, () => false);
+    await syncGmail({ token: 't', query: 'q' });
+    const gets = fetchMock.mock.calls.filter(([url]) => !String(url).includes('/messages?'));
+    const lists = fetchMock.mock.calls.filter(([url]) => String(url).includes('/messages?'));
+    expect(gets).toHaveLength(3);
+    // A full re-read searches all mail, not just mail since the last sync.
+    expect(decodeURIComponent(String(lists[0][0]))).not.toContain('after:');
+    expect((await loadSyncState()).scanKey).toBe(scanKeyFor('q'));
+
+    // With nothing changed, the next sync only looks at new mail.
+    const again = fakeGmail(3, () => false);
+    await syncGmail({ token: 't', query: 'q' });
+    expect(again.mock.calls.filter(([url]) => !String(url).includes('/messages?'))).toHaveLength(0);
+  });
+
+  it('runs every built-in search and reads each email once', async () => {
+    const fetchMock = fakeGmail(4, () => false);
+    const flights = await syncGmail({ token: 't', query: '' });
+    expect(flights).toHaveLength(4);
+    const lists = fetchMock.mock.calls.filter(([url]) => String(url).includes('/messages?'));
+    expect(lists.length).toBe(builtinQueries().length);
+    expect(fetchMock.mock.calls.length - lists.length).toBe(4);
+  });
+});
+
+describe('settings', () => {
+  it('replaces the old default search with the built-in one but keeps custom searches', async () => {
+    const legacy =
+      '{subject:flight subject:itinerary subject:"boarding pass" subject:"e-ticket" subject:eticket subject:"trip confirmation" subject:"booking confirmation" subject:"reservation" subject:"your trip" subject:"check in" subject:"check-in"} -category:promotions -category:social';
+    await saveSettings({ clientId: 'id', query: legacy, units: 'mi' });
+    expect(await loadSettings()).toMatchObject({ clientId: 'id', query: '', units: 'mi' });
+    await saveSettings({ clientId: 'id', query: 'from:airline.example', units: 'km' });
+    expect((await loadSettings()).query).toBe('from:airline.example');
+  });
+});
+
+describe('diagnoseSearch', () => {
+  it('reports whether the sync searches include an email and why it produced no flight', async () => {
+    const html = (i: number) => (i === 0 ? message(0) : { ...message(1), payload: { mimeType: 'text/plain', headers: [{ name: 'Subject', value: 'Your receipt' }], body: { data: b64url('Thanks for your purchase') } } });
+    vi.stubGlobal(
+      'fetch',
+      vi.fn(async (url: string) => {
+        const q = new URL(url).searchParams.get('q') ?? '';
+        if (url.includes('/messages?')) return json({ messages: q.startsWith('(') ? [{ id: 'm0' }] : [{ id: 'm0' }, { id: 'm1' }] });
+        return json(html(Number(url.match(/messages\/m(\d+)/)![1])));
+      }),
+    );
+    const [first, second] = await diagnoseSearch('t', 'from:custom', 'trip');
+    expect(first).toMatchObject({ id: 'm0', searchedBySync: true });
+    expect(first.explanation.flights).toHaveLength(1);
+    expect(second).toMatchObject({ id: 'm1', subject: 'Your receipt', searchedBySync: false });
+    expect(second.explanation.reason).toMatch(/No flight numbers or dates or airport codes/);
   });
 });

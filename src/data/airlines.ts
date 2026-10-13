@@ -92,7 +92,33 @@ export const AIRLINE_DOMAINS: Record<string, string> = {
   'virginaustralia.com': 'VA', 'flysuncountry.com': 'SY', 'suncountry.com': 'SY', 'allegiantair.com': 'G4', 'flybreeze.com': 'MX',
   'aveloair.com': 'XP', 'porterairlines.com': 'PD', 'vueling.com': 'VY', 'wizzair.com': 'W6', 'norwegian.com': 'DY',
   'tap.pt': 'TP', 'flytap.com': 'TP', 'elal.com': 'LY', 'airindia.com': 'AI', 'goindigo.in': '6E', 'airasia.com': 'AK',
+  'aerolineas.com.ar': 'AR', 'latamairlines.com': 'LA', 'ita-airways.com': 'AZ', 'alitalia.com': 'AZ',
+  'aireuropa.com': 'UX', 'volaris.com': 'Y4', 'vivaaerobus.com': 'VB', 'jetsmart.com': 'JA', 'skyairline.com': 'H2',
+  'voegol.com.br': 'G3', 'voeazul.com.br': 'AD', 'royalairmaroc.com': 'AT', 'egyptair.com': 'MS', 'ethiopianairlines.com': 'ET',
+  'kenya-airways.com': 'KQ', 'saudia.com': 'SV', 'flydubai.com': 'FZ', 'airarabia.com': 'G9', 'transavia.com': 'HV',
+  'eurowings.com': 'EW', 'brusselsairlines.com': 'SN', 'aegeanair.com': 'A3', 'lot.com': 'LO', 'airbaltic.com': 'BT',
+  'flypgs.com': 'PC', 'condor.com': 'DE', 'edelweissair.ch': 'WK', 'airtransat.com': 'TS', 'flair.com': 'F8',
+  'thaiairways.com': 'TG', 'vietnamairlines.com': 'VN', 'malaysiaairlines.com': 'MH',
+  'philippineairlines.com': 'PR', 'garuda-indonesia.com': 'GA', 'airchina.com': 'CA', 'csair.com': 'CZ', 'ceair.com': 'MU',
+  'hawaiianair.com': 'HA', 'jetstar.com': 'JQ', 'flyscoot.com': 'TR', 'cebupacificair.com': '5J',
 };
+
+/** Online travel agencies and corporate booking tools whose emails carry other airlines' flights. */
+export const TRAVEL_AGENCY_DOMAINS = [
+  'cheapoair.com', 'onetravel.com', 'expedia.com', 'priceline.com', 'orbitz.com', 'travelocity.com', 'kayak.com',
+  'hopper.com', 'trip.com', 'kiwi.com', 'edreams.com', 'opodo.com', 'despegar.com', 'booking.com', 'navan.com',
+  'tripactions.com', 'egencia.com', 'justfly.com', 'flighthub.com', 'mytrip.com', 'gotogate.com', 'budgetair.com',
+  'amextravel.com', 'studentuniverse.com', 'lastminute.com', 'travelgenio.com', 'almundo.com', 'tripit.com',
+];
+
+/** Senders that write numeric dates month-first (03/04 = March 4). Everyone else is read day-first. */
+const US_AIRLINES = new Set(['AA', 'DL', 'UA', 'WN', 'B6', 'AS', 'NK', 'F9', 'HA', 'G4', 'SY', 'MX', 'XP', 'VX']);
+const US_AGENCIES = ['cheapoair.com', 'onetravel.com', 'expedia.com', 'priceline.com', 'orbitz.com', 'travelocity.com', 'kayak.com', 'hopper.com', 'navan.com', 'tripactions.com', 'egencia.com', 'amextravel.com', 'studentuniverse.com', 'tripit.com'];
+
+export function usesMonthFirstDates(from: string, carrier: string | undefined): boolean {
+  const domain = from.match(/@([\w.-]+)/)?.[1]?.toLowerCase() ?? '';
+  return (carrier !== undefined && US_AIRLINES.has(carrier)) || US_AGENCIES.some((d) => domain === d || domain.endsWith(`.${d}`));
+}
 
 export function airlineFromSender(from: string): string | undefined {
   const domain = from.match(/@([\w.-]+)/)?.[1]?.toLowerCase();

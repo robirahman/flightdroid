@@ -1,6 +1,9 @@
 import { useEffect, useState } from 'preact/hooks';
+import type { DiagnosedEmail } from '../gmail/diagnose';
 import type { SyncProgress } from '../gmail/sync';
-import { DEFAULT_QUERY, type SyncState } from '../lib/store';
+import { flightCode } from '../lib/flights';
+import type { SyncState } from '../lib/store';
+import { formatDate } from '../lib/time';
 import type { Settings } from '../lib/types';
 import { Icon } from './icons';
 
@@ -8,8 +11,11 @@ interface Props {
   settings: Settings;
   flightCount: number;
   syncState: Pick<SyncState, 'lastSync' | 'lastAttempt'>;
+  /** True when the search or parser improved since the last sync, so the next one re-reads everything. */
+  rescanPending: boolean;
   progress?: SyncProgress;
   syncing: boolean;
+  onDiagnose: (query: string) => Promise<DiagnosedEmail[]>;
   onSettings: (s: Settings) => void;
   onSync: (full: boolean) => void;
   onSignOut: () => void;
@@ -56,6 +62,9 @@ export function SettingsView(p: Props) {
             </p>
           </div>
         )}
+        {p.rescanPending && !p.syncing && (
+          <p class="notice">Flight detection has improved since your last sync. The next sync re-reads all matching emails once.</p>
+        )}
         {stoppedEarly && (
           <p class="notice">
             The last sync stopped after reading {lastAttempt.read} of {lastAttempt.total} emails.{' '}
@@ -91,19 +100,23 @@ export function SettingsView(p: Props) {
         <details>
           <summary>Advanced: Gmail search query</summary>
           <label class="field">
-            <span>Only emails matching this query are read</span>
-            <textarea rows={4} value={query} spellcheck={false} onInput={(e) => setQuery(e.currentTarget.value)} />
+            <span class="hint">Leave empty for the built-in search (booking subjects in six languages, mail from airlines and travel agencies, and Gmail's Reservations category). A query here replaces it.</span>
+            <textarea rows={3} value={query} placeholder="Built-in search" spellcheck={false} onInput={(e) => setQuery(e.currentTarget.value)} />
           </label>
-          <button class="btn small" onClick={() => setQuery(DEFAULT_QUERY)}>
-            Reset query
-          </button>
+          {query && (
+            <button class="btn small" onClick={() => setQuery('')}>
+              Use built-in search
+            </button>
+          )}
         </details>
         {dirty && (
-          <button class="btn primary wide" onClick={() => p.onSettings({ ...p.settings, clientId: clientId.trim(), query: query.trim() || DEFAULT_QUERY })}>
+          <button class="btn primary wide" onClick={() => p.onSettings({ ...p.settings, clientId: clientId.trim(), query: query.trim() })}>
             Save
           </button>
         )}
       </section>
+
+      <MissingFlight disabled={!p.settings.clientId || p.syncing} onDiagnose={p.onDiagnose} />
 
       <section class="card">
         <h3>Units</h3>
@@ -163,4 +176,67 @@ function useCountdown(until: number | undefined): number {
     return () => clearInterval(t);
   }, [until]);
   return until ? Math.max(0, Math.ceil((until - now) / 1000)) : 0;
+}
+
+/** "Missing a flight?": shows whether the sync reads the emails for a trip and what it finds in them. */
+function MissingFlight({ disabled, onDiagnose }: { disabled: boolean; onDiagnose: (query: string) => Promise<DiagnosedEmail[]> }) {
+  const [query, setQuery] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [results, setResults] = useState<DiagnosedEmail[]>();
+  const [error, setError] = useState<string>();
+
+  const check = async (e: Event) => {
+    e.preventDefault();
+    if (!query.trim()) return;
+    setBusy(true);
+    setError(undefined);
+    try {
+      setResults(await onDiagnose(query.trim()));
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <section class="card">
+      <h3>Missing a flight?</h3>
+      <p class="muted">
+        Search your Gmail for the trip (e.g. <code>avianca santa marta</code>) to see whether Flightdroid reads those emails and what it finds in them.
+      </p>
+      <form class="row" onSubmit={check}>
+        <input class="grow" value={query} placeholder="Gmail search" spellcheck={false} onInput={(e) => setQuery(e.currentTarget.value)} />
+        <button class="btn small" type="submit" disabled={disabled || busy || !query.trim()}>
+          {busy ? 'Checking…' : 'Check'}
+        </button>
+      </form>
+      {error && <p class="notice">{error}</p>}
+      {results && !results.length && <p class="muted">No emails match that search.</p>}
+      {results && results.length > 0 && (
+        <ul class="diagnosis">
+          {results.map((r) => (
+            <li key={r.id}>
+              <a href={`https://mail.google.com/mail/u/0/#all/${r.id}`} target="_blank" rel="noopener noreferrer">
+                <strong>{r.subject || '(no subject)'}</strong>
+              </a>
+              <span class="muted small">
+                {r.from.replace(/<.*>/, '').trim() || r.from} · {new Date(r.date).toLocaleDateString()}
+              </span>
+              {!r.searchedBySync && <span class="tag warn">Not included in the sync search</span>}
+              {r.explanation.flights.length ? (
+                <span class="tag ok">
+                  {r.explanation.flights
+                    .map((f) => `${flightCode(f) || 'Flight'} ${f.from}→${f.to} ${formatDate(f.departure, { day: 'numeric', month: 'short', year: 'numeric' })}`)
+                    .join(' · ')}
+                </span>
+              ) : (
+                <span class="tag warn">{r.explanation.reason}</span>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
 }

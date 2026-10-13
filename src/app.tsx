@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from 'preact/hooks';
 import { getAccessToken, loadScript, signOut } from './gmail/auth';
-import { syncGmail, type SyncProgress } from './gmail/sync';
+import { diagnoseSearch } from './gmail/diagnose';
+import { scanKeyFor, syncGmail, type SyncProgress } from './gmail/sync';
 import { demoFlights } from './lib/demo';
 import { describe, flightKey, sortFlights } from './lib/flights';
 import { clearAll, DEFAULT_SETTINGS, loadFlights, loadSettings, loadSyncState, saveFlights, saveSettings, saveSyncState, type SyncState } from './lib/store';
@@ -30,7 +31,7 @@ export function App() {
   const [loaded, setLoaded] = useState(false);
   const [flights, setFlights] = useState<Flight[]>([]);
   const [settings, setSettings] = useState<Settings>(DEFAULT_SETTINGS);
-  const [syncState, setSyncState] = useState<Pick<SyncState, 'lastSync' | 'lastAttempt'>>({});
+  const [syncState, setSyncState] = useState<Pick<SyncState, 'lastSync' | 'lastAttempt' | 'scanKey'>>({});
   const [tab, setTabState] = useState<Tab>(initialTab);
   const [year, setYear] = useState<number | 'all'>('all');
   const [sheet, setSheet] = useState<{ flight?: Flight } | undefined>();
@@ -182,6 +183,8 @@ export function App() {
             settings={settings}
             flightCount={flights.length}
             syncState={syncState}
+            rescanPending={!!(syncState.lastSync || syncState.lastAttempt) && syncState.scanKey !== scanKeyFor(settings.query)}
+            onDiagnose={async (q) => diagnoseSearch(await getAccessToken(settings.clientId), settings.query, q)}
             progress={progress}
             syncing={syncing}
             onSettings={changeSettings}

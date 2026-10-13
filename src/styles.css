@@ -71,7 +71,7 @@ code {
   background: var(--surface-2);
   padding: 1px 5px;
   border-radius: 5px;
-  word-break: break-all;
+  overflow-wrap: anywhere;
 }
 
 h1,
@@ -299,6 +299,9 @@ h3 {
 .field small {
   font-weight: 500;
   min-height: 1.2em;
+}
+.field .hint {
+  font-weight: 400;
 }
 .field small.error {
   color: var(--danger);
@@ -870,4 +873,48 @@ details summary {
 }
 .grid2 .field {
   margin: 6px 0;
+}
+
+/* Missing-flight diagnosis */
+
+.grow {
+  flex: 1;
+  min-width: 0;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 12px;
+  font-size: 16px;
+}
+.diagnosis {
+  list-style: none;
+  margin: 10px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.diagnosis li {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 14px;
+  overflow-wrap: anywhere;
+}
+.diagnosis a {
+  color: inherit;
+  text-decoration: none;
+}
+.tag {
+  align-self: flex-start;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 6px;
+  padding: 2px 8px;
+}
+.tag.ok {
+  background: color-mix(in srgb, var(--arc-past) 18%, transparent);
+}
+.tag.warn {
+  background: color-mix(in srgb, var(--accent) 22%, transparent);
 }

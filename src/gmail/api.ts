@@ -8,6 +8,7 @@ interface Header {
 }
 export interface MessagePart {
   mimeType?: string;
+  filename?: string;
   headers?: Header[];
   body?: { data?: string; size?: number; attachmentId?: string };
   parts?: MessagePart[];
@@ -120,19 +121,19 @@ async function request<T>(token: string, path: string): Promise<T> {
   }
 }
 
-/** All message ids matching a Gmail search query. */
-export async function listMessageIds(token: string, query: string, onPage?: (count: number) => void): Promise<string[]> {
+/** Message ids matching a Gmail search query, newest first; all of them unless `limit` is given. */
+export async function listMessageIds(token: string, query: string, onPage?: (count: number) => void, limit = Infinity): Promise<string[]> {
   const ids: string[] = [];
   let pageToken: string | undefined;
   do {
-    const params = new URLSearchParams({ q: query, maxResults: '500' });
+    const params = new URLSearchParams({ q: query, maxResults: String(Math.min(500, limit)) });
     if (pageToken) params.set('pageToken', pageToken);
     const page = await request<{ messages?: { id: string }[]; nextPageToken?: string }>(token, `/messages?${params}`);
     ids.push(...(page.messages ?? []).map((m) => m.id));
     onPage?.(ids.length);
     pageToken = page.nextPageToken;
-  } while (pageToken);
-  return ids;
+  } while (pageToken && ids.length < limit);
+  return ids.slice(0, limit);
 }
 
 export async function getMessage(token: string, id: string): Promise<EmailMessage> {
@@ -164,6 +165,7 @@ export function decodeMessage(msg: GmailMessage): EmailMessage {
   };
   const walk = (part: MessagePart) => {
     const type = part.mimeType?.toLowerCase() ?? '';
+    if (part.body?.attachmentId) (out.attachments ??= []).push(part.filename || type);
     if (part.body?.data && (type === 'text/html' || type === 'text/plain')) {
       const charset = header(part, 'Content-Type').match(/charset="?([\w-]+)"?/i)?.[1] ?? 'utf-8';
       const key = type === 'text/html' ? 'html' : 'text';

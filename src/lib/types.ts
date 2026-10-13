@@ -39,6 +39,8 @@ export interface EmailMessage {
   date: number;
   html?: string;
   text?: string;
+  /** Attachment file names (or MIME types when unnamed). */
+  attachments?: string[];
 }
 
 export interface Settings {

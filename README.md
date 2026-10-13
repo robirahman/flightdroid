@@ -20,15 +20,24 @@ except map tile requests.
 
 ## How flights are found
 
-1. Gmail is searched with a query for confirmation/itinerary/boarding-pass style subjects
-   (editable under Settings → Advanced). Later syncs only read new emails.
+1. Gmail is searched for booking-style subjects in English, Spanish, Portuguese, Italian, French
+   and German, for mail from ~120 airlines and travel agencies (CheapOair, Expedia, Navan, …),
+   and for Gmail's own Reservations category. You can replace this with your own search under
+   Settings → Advanced. Later syncs only read new emails.
 2. Most airlines and booking sites embed [schema.org `FlightReservation`](https://developers.google.com/gmail/markup/reference/flight-reservation)
    markup (JSON-LD or microdata) — the same data Gmail uses for its trip cards. That is parsed
    first and trusted.
 3. Emails without markup fall back to text heuristics (flight numbers, airport codes, dates and
-   times). Those flights get a **check** badge until you review or edit them.
+   times, with month names in six languages). Those flights get a **check** badge until you
+   review or edit them.
 4. The same flight seen in several emails is merged; newer emails (schedule changes) win, and
    cancellations remove it. Flights you edit or delete are left alone by future syncs.
+5. When the search or parser improves, the next sync re-reads all matching emails once.
+
+**Missing a flight?** Settings → *Missing a flight?* takes a Gmail search (e.g.
+`avianca santa marta`) and shows, for each matching email, whether the sync searches include it
+and what was found in it — or why nothing was (no airport codes, details only in a PDF, …).
+Itineraries that exist only as PDF attachments aren't read yet.
 
 ## Connect Gmail
 
