@@ -184,30 +184,57 @@ const CAPS_WORD = /^[A-Z][A-Z'.-]+$/;
  * to a time, or next to its city ("LONDON GATWICK LGW MARRAKECH") does; "SAN" in "SAN JOSE" or "DEL" in
  * "DEL VUELO" doesn't: those sit inside a run of capitalised words unrelated to the airport.
  */
+/** Labels after which a three-letter code is a fare, class or ticket code, not an airport. */
+const CODE_LABEL = /(fare|basis|class|designator|cabin|brand|product|tarifa|clase|classe|tariff|booking code)\b[^\n|]{0,3}$/i;
+
+/** Span of the lines from `before` lines above to `after` lines below text[index, end). */
+function lineWindow(text: string, index: number, end: number, before: number, after: number): [number, number] {
+  let start = text.lastIndexOf('\n', index - 1);
+  for (let i = 0; i < before && start > 0; i++) start = text.lastIndexOf('\n', start - 1);
+  let stop = text.indexOf('\n', end);
+  for (let i = 0; i < after && stop !== -1; i++) stop = text.indexOf('\n', stop + 1);
+  return [start + 1, stop === -1 ? text.length : stop];
+}
+
+const linesAround = (text: string, index: number, end: number, before: number, after: number) => text.slice(...lineWindow(text, index, end, before, after));
+
+/** Whether a fare/class label sits right before the code, on its line or the line above. */
+function afterCodeLabel(text: string, index: number): boolean {
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+  const sameLine = text.slice(lineStart, index);
+  if (sameLine.trim()) return CODE_LABEL.test(sameLine.trimEnd());
+  return CODE_LABEL.test(linesAround(text, lineStart, lineStart, 1, 0).split('\n')[0].trimEnd());
+}
+
+/**
+ * Whether a bare uppercase code really names an airport here. Itineraries print an airport code
+ * with its city or a departure time close by ("MIA / Miami / 8:35 PM", "LONDON GATWICK LGW
+ * 08:15"); fare and class codes ("Fare basis: YCM") and capitalised words ("SAN JOSE", "DEL
+ * VUELO") don't look like that.
+ */
 function bareCodeIsAirport(text: string, index: number, end: number, code: string): boolean {
   const airport = getAirport(code);
   if (!airport || airport.size < 2 || STOPWORDS.has(code)) return false;
   if (text[index - 1] === '(' || /^[-/.]/.test(text.slice(end, end + 1))) return false;
+  if (afterCodeLabel(text, index)) return false;
   const before = text.slice(Math.max(0, index - 40), index).split(/[\n|]/).pop()!.trim().split(/\s+/).pop() ?? '';
   const after = text.slice(end, end + 40).split(/[\n|]/)[0].trim().split(/\s+/)[0] ?? '';
   const neighbours = [before, after].map((w) => w.replace(/[,:;]+$/, '')).filter((w) => CAPS_WORD.test(w) && !/^(AM|PM|A\.M\.|P\.M\.)$/.test(w));
   // Next to its own city or name ("GATWICK LGW") it is certainly the airport.
   if (neighbours.some((w) => namesAirport(w, airport))) return true;
-  // Otherwise it must stand alone or beside other codes, and sit near a time: itineraries print
-  // departure times next to airports, while fare and booking-class codes ("YCM") have none.
-  const alone = neighbours.every((w) => w.length === 3 && getAirport(w));
-  return alone && nearTime(text, index, end);
+  // Inside a run of unrelated capitalised words ("SAN JOSE") it is just a word.
+  if (!neighbours.every((w) => w.length === 3 && getAirport(w))) return false;
+  // Standing alone: its city nearby ("MIA … Miami"), or a time nearby.
+  const nearby = linesAround(text, index, end, 2, 2).split(/[^A-Za-z]+/);
+  return nearby.some((w) => w !== code && namesAirport(w, airport)) || nearTime(text, index, end);
 }
 
 let timesCache: { text: string; times: TimeHit[] } | undefined;
-/** Whether a time appears on the same line as text[index, end), or on the line just before or after. */
+/** Whether a time appears within three lines of text[index, end). */
 function nearTime(text: string, index: number, end: number): boolean {
   if (timesCache?.text !== text) timesCache = { text, times: findTimes(text) };
-  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
-  const prevStart = lineStart > 0 ? text.lastIndexOf('\n', lineStart - 2) + 1 : 0;
-  const lineEnd = text.indexOf('\n', end) === -1 ? text.length : text.indexOf('\n', end);
-  const nextEnd = text.indexOf('\n', lineEnd + 1) === -1 ? text.length : text.indexOf('\n', lineEnd + 1);
-  return timesCache.times.some((t) => t.index >= prevStart && t.end <= nextEnd);
+  const [start, stop] = lineWindow(text, index, end, 3, 3);
+  return timesCache.times.some((t) => t.index >= start && t.end <= stop);
 }
 
 function findMentions(text: string): Mention[] {
@@ -269,6 +296,7 @@ function findPairs(text: string): PairHit[] {
     // "YTZ-YHM" could be a fare or ticket code; small airports need parentheses or a time nearby.
     const small = getAirport(m[1])!.size < 3 || getAirport(m[2])!.size < 3;
     if (small && !m[0].includes('(') && !m[0].includes(')') && !nearTime(text, m.index, m.index + m[0].length)) continue;
+    if (afterCodeLabel(text, m.index)) continue;
     hits.push({ index: m.index, end: m.index + m[0].length, from: m[1], to: m[2], strength: 3 });
   }
   hits.push(...pairsFromMentions(findMentions(text)));
@@ -416,7 +444,8 @@ export function parseHeuristic(rawText: string, email: EmailMessage): ParsedFlig
 }
 
 export function scanText(rawText: string, email: EmailMessage): HeuristicResult {
-  const text = foldAccents(rawText);
+  // The subject often names the route or date ("Your trip confirmation (JFK - EZE)", "29NOV").
+  const text = foldAccents(`${email.subject}\n${rawText}`);
   const subject = foldAccents(email.subject);
   const carrier = defaultAirline(text, email);
   const flights = findFlightNumbers(text);

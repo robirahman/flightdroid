@@ -141,3 +141,26 @@ it('does not read fare and booking-class codes as airports', () => {
   const flights = parseEmail(email({ text, from: 'Air Canada <confirmation@aircanada.ca>', date: Date.UTC(2026, 8, 1) }));
   expect(flights.map((f) => `${f.flightNumber} ${f.from}-${f.to}`)).toEqual(['116 YYZ-YVR', '33 YVR-SYD']);
 });
+
+describe('American Airlines layouts', () => {
+  it('reads codes with the city between code and time', () => {
+    const text = [
+      'Your trip confirmation', 'Record locator: AOVBET', 'Depart', 'Fri, January 19, 2024', 'AA 997', 'MIA', 'Miami', '8:35 PM', 'EZE', 'Buenos Aires', '7:30 AM',
+      'Return', 'Sat, January 27, 2024', 'AA 900', 'EZE', 'Buenos Aires', '9:05 PM', 'MIA', 'Miami', '5:20 AM',
+    ].join('\n');
+    const flights = parseEmail(email({ text, subject: 'Your flight to Buenos Aires - AOVBET', from: 'American Airlines <no-reply@info.email.aa.com>', date: Date.UTC(2024, 0, 7) }));
+    expect(flights.map((f) => `${f.flightNumber} ${f.from}-${f.to} ${f.departure}`)).toEqual(['997 MIA-EZE 2024-01-19T20:35', '900 EZE-MIA 2024-01-27T21:05']);
+  });
+
+  it('uses the route in the subject when the body has no codes', () => {
+    const text = 'Your trip confirmation\nAA 953\nFri, Dec 1, 2023\nNew York\n10:15 PM\nBuenos Aires\n10:05 AM';
+    const [f] = parseEmail(email({ text, subject: 'Your trip confirmation (JFK - EZE)', from: 'American Airlines <no-reply@info.email.aa.com>', date: Date.UTC(2023, 10, 24) }));
+    expect(f).toMatchObject({ flightNumber: '953', from: 'JFK', to: 'EZE', departure: '2023-12-01T22:15' });
+  });
+
+  it('reads codes whose time is a few lines away', () => {
+    const text = ['AA 1433', 'Sun, Jan 15, 2023', 'Depart', 'PHL', 'Philadelphia', 'Gate B5', '6:00 AM', 'Arrive', 'CLT', 'Charlotte', '7:52 AM'].join('\n');
+    const [f] = parseEmail(email({ text, subject: 'Your trip confirmation', from: 'American Airlines <no-reply@info.email.aa.com>', date: Date.UTC(2023, 0, 1) }));
+    expect(f).toMatchObject({ flightNumber: '1433', from: 'PHL', to: 'CLT', departure: '2023-01-15T06:00' });
+  });
+});
