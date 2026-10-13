@@ -62,11 +62,15 @@ export function mergeParsed(existing: Flight[], parsed: ParsedFlight[], source: 
   const byKey = new Map(existing.map((f) => [flightKey(f), f]));
   // Also match flights without a number against numbered ones on the same route and day.
   const byRoute = new Map(existing.map((f) => [`${f.from}-${f.to}@${wallDate(f.departure)}`, f]));
+  // And the same booking's flight on another date: a schedule change, or an email that misread it.
+  const bookingKey = (f: Pick<Flight, 'confirmation' | 'airline' | 'flightNumber' | 'from' | 'to'>) =>
+    f.confirmation && f.flightNumber ? `${f.confirmation}|${f.airline}${f.flightNumber}|${f.from}-${f.to}` : undefined;
+  const byBooking = new Map(existing.flatMap((f) => (bookingKey(f) ? [[bookingKey(f)!, f] as const] : [])));
   for (const p of parsed) {
     const key = flightKey(p);
     if (deletedKeys.has(key)) continue;
     const routeKey = `${p.from}-${p.to}@${wallDate(p.departure)}`;
-    const current = byKey.get(key) ?? byRoute.get(routeKey);
+    const current = byKey.get(key) ?? byRoute.get(routeKey) ?? (bookingKey(p) ? byBooking.get(bookingKey(p)!) : undefined);
     if (p.cancelled) {
       if (current && !current.edited && (current.emailDate ?? 0) <= source.date) {
         byKey.delete(flightKey(current));
@@ -93,6 +97,7 @@ export function mergeParsed(existing: Flight[], parsed: ParsedFlight[], source: 
       byKey.delete(flightKey(current));
       byKey.set(flightKey(merged), merged);
       byRoute.set(routeKey, merged);
+      if (bookingKey(merged)) byBooking.set(bookingKey(merged)!, merged);
     } else {
       const { cancelled: _cancelled, ...rest } = p;
       const flight: Flight = {
@@ -105,6 +110,7 @@ export function mergeParsed(existing: Flight[], parsed: ParsedFlight[], source: 
       };
       byKey.set(key, flight);
       byRoute.set(routeKey, flight);
+      if (bookingKey(flight)) byBooking.set(bookingKey(flight)!, flight);
     }
   }
   return sortFlights([...byKey.values()]);

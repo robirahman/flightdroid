@@ -174,7 +174,7 @@ function findTimes(text: string): TimeHit[] {
 interface Mention extends Hit {
   code: string;
   /** "(SJO)" is unambiguous; a bare "SJO" or a name ("Gatwick") is weaker evidence. */
-  kind: 'paren' | 'bare' | 'name';
+  kind: 'paren' | 'bare';
 }
 
 const CAPS_WORD = /^[A-Z][A-Z'.-]+$/;
@@ -191,8 +191,23 @@ function bareCodeIsAirport(text: string, index: number, end: number, code: strin
   const before = text.slice(Math.max(0, index - 40), index).split(/[\n|]/).pop()!.trim().split(/\s+/).pop() ?? '';
   const after = text.slice(end, end + 40).split(/[\n|]/)[0].trim().split(/\s+/)[0] ?? '';
   const neighbours = [before, after].map((w) => w.replace(/[,:;]+$/, '')).filter((w) => CAPS_WORD.test(w) && !/^(AM|PM|A\.M\.|P\.M\.)$/.test(w));
-  // Fine when it stands alone, or when a neighbouring word is its own city/name or another code.
-  return !neighbours.length || neighbours.some((w) => (w.length === 3 && getAirport(w)) || namesAirport(w, airport));
+  // Next to its own city or name ("GATWICK LGW") it is certainly the airport.
+  if (neighbours.some((w) => namesAirport(w, airport))) return true;
+  // Otherwise it must stand alone or beside other codes, and sit near a time: itineraries print
+  // departure times next to airports, while fare and booking-class codes ("YCM") have none.
+  const alone = neighbours.every((w) => w.length === 3 && getAirport(w));
+  return alone && nearTime(text, index, end);
+}
+
+let timesCache: { text: string; times: TimeHit[] } | undefined;
+/** Whether a time appears on the same line as text[index, end), or on the line just before or after. */
+function nearTime(text: string, index: number, end: number): boolean {
+  if (timesCache?.text !== text) timesCache = { text, times: findTimes(text) };
+  const lineStart = text.lastIndexOf('\n', index - 1) + 1;
+  const prevStart = lineStart > 0 ? text.lastIndexOf('\n', lineStart - 2) + 1 : 0;
+  const lineEnd = text.indexOf('\n', end) === -1 ? text.length : text.indexOf('\n', end);
+  const nextEnd = text.indexOf('\n', lineEnd + 1) === -1 ? text.length : text.indexOf('\n', lineEnd + 1);
+  return timesCache.times.some((t) => t.index >= prevStart && t.end <= nextEnd);
 }
 
 function findMentions(text: string): Mention[] {
@@ -204,27 +219,33 @@ function findMentions(text: string): Mention[] {
   return out.sort((a, b) => a.index - b.index);
 }
 
-/** Airports named rather than coded ("London Gatwick to Marrakech"), for emails without any codes. */
-function findNameMentions(text: string): Mention[] {
+/**
+ * Airports named rather than coded, only as an explicit route ("London Gatwick to Marrakech",
+ * "Madrid → Naples"). Names alone are too ambiguous: "Fare" is a town with an airport, and
+ * "Wellington" or "China" show up in plenty of emails that have nothing to do with flights.
+ */
+function findNameRoutes(text: string): PairHit[] {
   const index = airportNameIndex();
-  const out: Mention[] = [];
-  for (const m of matches(text, /\b[A-Z][A-Za-z'-]+(?:\s+[A-Z][A-Za-z'-]+){0,2}/g)) {
-    const words = m[0].split(/\s+/);
-    let offset = 0;
-    for (let i = 0; i < words.length; i++) {
-      // Longest phrase first: "Buenos Aires" before "Aires".
-      for (let len = words.length - i; len >= 1; len--) {
-        const phrase = words.slice(i, i + len).join(' ');
-        const code = index.get(phrase.toLowerCase());
-        if (code) {
-          const at = m.index + m[0].indexOf(phrase, offset);
-          out.push({ index: at, end: at + phrase.length, code, kind: 'name' });
-          i += len - 1;
-          break;
-        }
-      }
-      offset = m[0].indexOf(words[i], offset) + words[i].length;
+  const PHRASE = "[A-Z][A-Za-z'.-]+(?: [A-Z][A-Za-z'.-]+){0,3}";
+  // The airport inside a phrase: "London Gatwick" → "gatwick", "Marrakech Menara" → "marrakech".
+  const resolve = (phrase: string, fromEnd: boolean): string | undefined => {
+    const words = phrase.split(' ');
+    const subphrases: string[] = [];
+    for (let len = words.length; len >= 1; len--) {
+      for (let i = 0; i + len <= words.length; i++) subphrases.push(words.slice(i, i + len).join(' '));
     }
+    if (fromEnd) subphrases.sort((a, b) => b.split(' ').length - a.split(' ').length || phrase.lastIndexOf(b) - phrase.lastIndexOf(a));
+    for (const sub of subphrases) {
+      const code = index.get(sub.toLowerCase());
+      if (code) return code;
+    }
+    return undefined;
+  };
+  const out: PairHit[] = [];
+  for (const m of matches(text, new RegExp(`(${PHRASE})[ \\t]*(?:\\bto\\b|→|->|–|—|-|>|✈)[ \\t]*(${PHRASE})`, 'g'))) {
+    const from = resolve(m[1], true);
+    const to = resolve(m[2], false);
+    if (from && to && from !== to) out.push({ index: m.index, end: m.index + m[0].length, from, to, strength: 1 });
   }
   return out;
 }
@@ -244,11 +265,15 @@ function findPairs(text: string): PairHit[] {
   const hits: PairHit[] = [];
   const arrow = /\b([A-Z]{3})\)?\s*(?:→|->|➝|➔|⟶|✈|✈️|–|—|-|>|\bto\b|\ba\b|\bhacia\b|\bpara\b|\bper\b|\bvers\b|\bnach\b)\s*(?:[^\n()]{0,40}?\()?\b([A-Z]{3})\b/g;
   for (const m of matches(text, arrow)) {
-    if (m[1] !== m[2] && isAirportToken(m[1]) && isAirportToken(m[2])) hits.push({ index: m.index, end: m.index + m[0].length, from: m[1], to: m[2], strength: 3 });
+    if (m[1] === m[2] || !isAirportToken(m[1]) || !isAirportToken(m[2])) continue;
+    // "YTZ-YHM" could be a fare or ticket code; small airports need parentheses or a time nearby.
+    const small = getAirport(m[1])!.size < 3 || getAirport(m[2])!.size < 3;
+    if (small && !m[0].includes('(') && !m[0].includes(')') && !nearTime(text, m.index, m.index + m[0].length)) continue;
+    hits.push({ index: m.index, end: m.index + m[0].length, from: m[1], to: m[2], strength: 3 });
   }
   hits.push(...pairsFromMentions(findMentions(text)));
   // Only when no codes appear at all, fall back to airport and city names.
-  if (!hits.length) hits.push(...pairsFromMentions(findNameMentions(text)).map((p) => ({ ...p, strength: 1 })));
+  if (!hits.length) hits.push(...findNameRoutes(text));
   // The same route is often found by several patterns; keep the strongest of overlapping hits.
   hits.sort((a, b) => a.index - b.index || b.strength - a.strength);
   const kept: PairHit[] = [];
@@ -312,6 +337,26 @@ function alignInOrder(anchors: Hit[], candidates: Hit[], text: string, penalty: 
     }
   }
   return result;
+}
+
+const NOT_A_FLIGHT_DATE =
+  /(booked|booking date|issued|issue date|date of issue|purchased?|ordered|transaction|invoice|payment|paid|fecha de (?:emision|compra|reserva)|emitid[oa]|data (?:de )?(?:emissao|compra)|emesso|emissione|ausgestellt)[^\n\d]{0,25}$/i;
+
+const ARRIVAL_LABEL = /(arriv\w*|llegada|llega|chegada|arrivo|ankunft|\barr\.?)[^\n\d]{0,20}$/i;
+
+/**
+ * Extra cost for dates that are probably not a departure: booking/issue dates, dates before the
+ * email was sent (itineraries describe future flights), arrival dates, and dates with no time next to them.
+ */
+function datePenalty(d: DateHit, text: string, times: TimeHit[], emailDate: number): number {
+  let penalty = 0;
+  const before = text.slice(Math.max(0, d.index - 40), d.index);
+  if (NOT_A_FLIGHT_DATE.test(before)) penalty += 5000;
+  // An arrival date belongs to the flight before it, not the next flight number below it.
+  if (ARRIVAL_LABEL.test(before)) penalty += 1500;
+  if (Date.UTC(resolveYear(d, emailDate), d.month - 1, d.day) < emailDate - 3 * 86400000) penalty += 3000;
+  if (!times.some((t) => t.index >= d.end && t.index - d.end < 120)) penalty += 200;
+  return penalty;
 }
 
 function resolveYear(d: DateHit, emailDate: number): number {
@@ -396,7 +441,7 @@ export function scanText(rawText: string, email: EmailMessage): HeuristicResult 
     anchors = pairs.filter((p) => p.strength >= 2);
   }
 
-  const dateOf = alignInOrder(anchors, dates, text);
+  const dateOf = alignInOrder(anchors, dates, text, (c) => datePenalty(dates[c], text, times, email.date));
   // Routes that span another flight's number ("…SJO | flight 2 | LIR…") join two different flights.
   const straddles = (p: PairHit) => anchors.some((a) => a.index > p.index && a.end < p.end);
   const pairOf = flights.length

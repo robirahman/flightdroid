@@ -75,7 +75,7 @@ const NAME_ALIASES: Record<string, string> = { marrakech: 'RAK', bombay: 'BOM', 
 let nameIndex: Map<string, string> | undefined;
 
 /**
- * Lower-case, accent-free names that point to exactly one airport with scheduled service:
+ * Lower-case, accent-free names that point to exactly one major airport:
  * distinctive words of airport names ("gatwick", "ezeiza") and cities with a single airport
  * ("marrakesh"). For emails that name airports instead of giving their codes.
  */
@@ -88,7 +88,8 @@ export function airportNameIndex(): Map<string, string> {
   };
   for (const code of Object.keys(rows)) {
     const a = getAirport(code)!;
-    if (a.size < 2) continue;
+    // Major airports only: smaller ones are too often named after ordinary words or places.
+    if (a.size < 3) continue;
     const city = fold(a.city).replace(/\s*\(.*\)/, '').trim();
     if (city) claim(city, code);
     const cityWords = new Set(city.split(/[^a-z]+/));

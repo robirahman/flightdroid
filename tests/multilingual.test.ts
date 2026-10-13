@@ -114,3 +114,30 @@ it('matches flights whose date and route are far from the flight number in a lon
   expect(text.length).toBeGreaterThan(3000);
   expect(f).toMatchObject({ airline: 'AV', flightNumber: '9534', from: 'BOG', to: 'SMR', departure: '2026-03-07T16:55' });
 });
+
+it('does not turn ordinary words that name airports ("Fare", "Wellington", "Milan") into routes', () => {
+  const text = 'Booking confirmation\nFare details - Total fare 120 EUR\nBA 1234\n12 Mar 2025 09:00\nHotel Wellington, Milan - Breakfast included\nChina Town - Wellington Street';
+  expect(parseEmail(email({ text, date: Date.UTC(2025, 1, 1) }))).toEqual([]);
+});
+
+it('does not take a booking date for the flight date', () => {
+  const text = 'Booking confirmation\nBooked on: 2 Mar 2026\nAC 33\nVancouver (YVR) → Sydney (SYD)\nDeparts 15 Dec 2026 23:50 Arrives 17 Dec 2026 09:15\nAC 34\nSydney (SYD) → Vancouver (YVR)\nDeparts 5 Jan 2027 11:00 Arrives 5 Jan 2027 06:30';
+  const flights = parseEmail(email({ text, from: 'Air Canada <confirmation@aircanada.ca>', date: Date.UTC(2026, 2, 2) }));
+  expect(flights.map((f) => `${f.flightNumber} ${f.from}-${f.to} ${f.departure}`)).toEqual(['33 YVR-SYD 2026-12-15T23:50', '34 SYD-YVR 2027-01-05T11:00']);
+});
+
+it('prefers a future departure over an earlier date in a reminder email', () => {
+  const text = 'Your trip is coming up\nYou booked this trip on Mar 2, 2026.\nAC 33\nVancouver (YVR) → Sydney (SYD)\nDec 15, 2026 23:50';
+  const [f] = parseEmail(email({ text, from: 'Air Canada <info@aircanada.ca>', date: Date.UTC(2026, 11, 1) }));
+  expect(f.departure).toBe('2026-12-15T23:50');
+});
+
+it('does not read fare and booking-class codes as airports', () => {
+  const text = [
+    'Booking confirmation - Air Canada', 'Booking reference: QW7ERT', 'Fare: Standard', 'YCM', 'Fare basis', 'YZR', 'Ticket designator: YTZ-YHM',
+    'AC 116', 'Mon, Dec 14, 2026', 'YYZ', '08:00', 'YVR', '10:05',
+    'AC 33', 'Mon, Dec 14, 2026', 'YVR', '23:50', 'SYD', '09:15',
+  ].join('\n');
+  const flights = parseEmail(email({ text, from: 'Air Canada <confirmation@aircanada.ca>', date: Date.UTC(2026, 8, 1) }));
+  expect(flights.map((f) => `${f.flightNumber} ${f.from}-${f.to}`)).toEqual(['116 YYZ-YVR', '33 YVR-SYD']);
+});

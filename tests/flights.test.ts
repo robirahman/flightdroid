@@ -46,3 +46,21 @@ describe('describe', () => {
     expect(d.minutes).toBe(315);
   });
 });
+
+describe('same booking, different dates', () => {
+  it('keeps one flight per booking, flight number and route', () => {
+    const ac33 = { ...base, airline: 'AC', flightNumber: '33', from: 'YVR', to: 'SYD', confirmation: 'ABC123' };
+    let flights = mergeParsed([], [{ ...ac33, departure: '2026-12-15T23:50' }], src('a', 1), new Set());
+    // A later email for the same booking reports another date (schedule change).
+    flights = mergeParsed(flights, [{ ...ac33, departure: '2026-12-16T00:30' }], src('b', 2), new Set());
+    expect(flights).toHaveLength(1);
+    expect(flights[0].departure).toBe('2026-12-16T00:30');
+    // A text-parsed email can't overrule what airline markup said.
+    flights = mergeParsed(flights, [{ ...ac33, departure: '2026-03-02', confidence: 'low' }], src('c', 3), new Set());
+    expect(flights).toHaveLength(1);
+    expect(flights[0].departure).toBe('2026-12-16T00:30');
+    // Different bookings of the same flight stay separate trips.
+    flights = mergeParsed(flights, [{ ...ac33, confirmation: 'XYZ789', departure: '2027-12-15T23:50' }], src('d', 4), new Set());
+    expect(flights).toHaveLength(2);
+  });
+});
